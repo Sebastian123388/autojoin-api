@@ -37,68 +37,141 @@ async function fetchDiscordMessages() {
     }
 }
 
-// Processar mensagens - ATUALIZADO PARA SEU FORMATO
+// Processar mensagens - CORRIGIDO PARA EMBEDS
 function processMessages(messages) {
     const processedData = [];
     
     messages.forEach(message => {
-        console.log('📋 Processando mensagem:', message.content.substring(0, 100) + '...');
+        console.log('📋 Processando mensagem ID:', message.id);
         
-        // PADRÕES ESPECÍFICOS PARA BRAINROT NOTIFY
-        const jobIdPatterns = [
-            // Para "Job ID (Mobile)"
-            /Job ID \(Mobile\)[:\s]*\n([a-zA-Z0-9]+)/i,
-            // Para "Job ID (iOS)" 
-            /Job ID \(iOS\)[:\s]*\n([a-zA-Z0-9]+)/i,
-            // Para "Job ID (PC)"
-            /Job ID \(PC\)[:\s]*\n([a-zA-Z0-9]+)/i,
-            // Padrão genérico
-            /Job ID[:\s]*\(.*?\)[:\s]*\n([a-zA-Z0-9]+)/i,
-            // Fallback - qualquer Job ID
-            /Job[:\s]*ID[:\s]*([a-zA-Z0-9]+)/i
-        ];
-        
-        let jobIdFound = null;
-        let platform = 'Unknown';
-        
-        for (const pattern of jobIdPatterns) {
-            const match = message.content.match(pattern);
-            if (match) {
-                jobIdFound = match[1];
+        // Se a mensagem tem embeds, processar eles
+        if (message.embeds && message.embeds.length > 0) {
+            message.embeds.forEach((embed, embedIndex) => {
+                console.log(`🔍 Processando embed ${embedIndex}:`, embed.title);
                 
-                // Determinar plataforma
-                if (message.content.includes('(Mobile)')) platform = 'Mobile';
-                else if (message.content.includes('(iOS)')) platform = 'iOS';
-                else if (message.content.includes('(PC)')) platform = 'PC';
-                
-                console.log('🎯 Job ID encontrado:', jobIdFound, 'Plataforma:', platform);
-                break;
-            }
+                // Verificar se é um embed do Brainrot Notify
+                if (embed.title && embed.title.includes('Brainrot Notify')) {
+                    
+                    let serverName = null;
+                    let moneyPerSec = null;
+                    let players = null;
+                    let jobIds = [];
+                    
+                    // Processar campos do embed
+                    if (embed.fields && embed.fields.length > 0) {
+                        embed.fields.forEach(field => {
+                            const fieldName = field.name.toLowerCase();
+                            const fieldValue = field.value;
+                            
+                            console.log(`  📌 Campo: "${field.name}" = "${fieldValue}"`);
+                            
+                            // Extrair informações baseado no nome do campo
+                            if (fieldName.includes('name') || fieldName.includes('🏷️')) {
+                                serverName = fieldValue.trim();
+                            }
+                            else if (fieldName.includes('money') || fieldName.includes('💰')) {
+                                moneyPerSec = fieldValue.replace(/\*/g, '').trim();
+                            }
+                            else if (fieldName.includes('players') || fieldName.includes('👥')) {
+                                players = fieldValue.replace(/\*/g, '').trim();
+                            }
+                            else if (fieldName.includes('job id')) {
+                                // Determinar plataforma
+                                let platform = 'Unknown';
+                                if (fieldName.includes('mobile')) platform = 'Mobile';
+                                else if (fieldName.includes('ios')) platform = 'iOS';
+                                else if (fieldName.includes('pc')) platform = 'PC';
+                                
+                                jobIds.push({
+                                    id: fieldValue.trim(),
+                                    platform: platform
+                                });
+                                
+                                console.log(`🎯 Job ID encontrado: ${fieldValue.trim()} (${platform})`);
+                            }
+                        });
+                    }
+                    
+                    // Se encontrou pelo menos um Job ID, criar entrada
+                    if (jobIds.length > 0) {
+                        jobIds.forEach(jobId => {
+                            const processedEntry = {
+                                id: `${message.id}_${embedIndex}_${jobId.platform}`,
+                                message_id: message.id,
+                                timestamp: message.timestamp,
+                                job_ids: [jobId.id],
+                                platform: jobId.platform,
+                                server_name: serverName,
+                                money_per_sec: moneyPerSec,
+                                players: players,
+                                author: message.author.username,
+                                embed_title: embed.title,
+                                fresh: true
+                            };
+                            
+                            processedData.push(processedEntry);
+                            console.log('✅ Entrada processada:', {
+                                platform: jobId.platform,
+                                server: serverName,
+                                money: moneyPerSec,
+                                job_id: jobId.id.substring(0, 20) + '...'
+                            });
+                        });
+                    }
+                }
+            });
         }
         
-        if (jobIdFound) {
-            // Extrair informações adicionais
-            const nameMatch = message.content.match(/Name[:\s]*\n(.+)/i);
-            const moneyMatch = message.content.match(/Money per sec[:\s]*\n(.+)/i);
-            const playersMatch = message.content.match(/Players[:\s]*\n(\d+\/\d+)/i);
+        // Fallback: se não tem embeds, tentar processar o content (código original)
+        else if (message.content && message.content.trim().length > 0) {
+            console.log('📝 Processando content da mensagem...');
             
-            const processedEntry = {
-                id: message.id,
-                timestamp: message.timestamp,
-                job_ids: [jobIdFound],
-                platform: platform,
-                server_name: nameMatch ? nameMatch[1].trim() : null,
-                money_per_sec: moneyMatch ? moneyMatch[1].trim() : null,
-                players: playersMatch ? playersMatch[1].trim() : null,
-                author: message.author.username,
-                content: message.content.substring(0, 300), // Primeiros 300 chars
-                fresh: true
-            };
+            const jobIdPatterns = [
+                /Job ID \(Mobile\)[:\s]*\n([a-zA-Z0-9]+)/i,
+                /Job ID \(iOS\)[:\s]*\n([a-zA-Z0-9]+)/i,
+                /Job ID \(PC\)[:\s]*\n([a-zA-Z0-9]+)/i,
+                /Job ID[:\s]*\(.*?\)[:\s]*\n([a-zA-Z0-9]+)/i,
+                /Job[:\s]*ID[:\s]*([a-zA-Z0-9]+)/i
+            ];
             
-            processedData.push(processedEntry);
-            console.log('✅ Entrada processada:', processedEntry);
-        } else {
-            console.log('❌ Nenhum Job ID encontrado nesta mensagem');
+            let jobIdFound = null;
+            let platform = 'Unknown';
+            
+            for (const pattern of jobIdPatterns) {
+                const match = message.content.match(pattern);
+                if (match) {
+                    jobIdFound = match[1];
+                    
+                    if (message.content.includes('(Mobile)')) platform = 'Mobile';
+                    else if (message.content.includes('(iOS)')) platform = 'iOS';
+                    else if (message.content.includes('(PC)')) platform = 'PC';
+                    
+                    console.log('🎯 Job ID encontrado no content:', jobIdFound, 'Plataforma:', platform);
+                    break;
+                }
+            }
+            
+            if (jobIdFound) {
+                const nameMatch = message.content.match(/Name[:\s]*\n(.+)/i);
+                const moneyMatch = message.content.match(/Money per sec[:\s]*\n(.+)/i);
+                const playersMatch = message.content.match(/Players[:\s]*\n(\d+\/\d+)/i);
+                
+                const processedEntry = {
+                    id: message.id,
+                    timestamp: message.timestamp,
+                    job_ids: [jobIdFound],
+                    platform: platform,
+                    server_name: nameMatch ? nameMatch[1].trim() : null,
+                    money_per_sec: moneyMatch ? moneyMatch[1].trim() : null,
+                    players: playersMatch ? playersMatch[1].trim() : null,
+                    author: message.author.username,
+                    content: message.content.substring(0, 300),
+                    fresh: true
+                };
+                
+                processedData.push(processedEntry);
+                console.log('✅ Entrada processada do content:', processedEntry);
+            }
         }
     });
     
@@ -151,7 +224,7 @@ app.get('/test', (req, res) => {
             'Job ID (Mobile)',
             'Job ID (iOS)', 
             'Job ID (PC)',
-            'Brainrot Notify format'
+            'Brainrot Notify format - EMBEDS'
         ]
     });
 });
@@ -210,6 +283,6 @@ app.listen(PORT, () => {
     if (!DISCORD_TOKEN || !CHANNEL_ID) {
         console.warn('⚠️  ATENÇÃO: Configure as variáveis DISCORD_TOKEN e CHANNEL_ID!');
     } else {
-        console.log('✅ Configuração OK - Pronto para detectar Job IDs do Brainrot Notify!');
+        console.log('✅ Configuração OK - Pronto para detectar Job IDs do Brainrot Notify (EMBEDS)!');
     }
 });
