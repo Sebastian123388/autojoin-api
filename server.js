@@ -168,7 +168,7 @@ app.get('/status', (req, res) => {
     });
 });
 
-// Endpoint para debug - mostra mensagens raw
+// Endpoint para debug - mostra mensagens raw COM EMBEDS
 app.get('/debug', async (req, res) => {
     try {
         const messages = await fetchDiscordMessages();
@@ -176,11 +176,20 @@ app.get('/debug', async (req, res) => {
             id: msg.id,
             content: msg.content,
             author: msg.author.username,
-            timestamp: msg.timestamp
+            timestamp: msg.timestamp,
+            has_embeds: msg.embeds && msg.embeds.length > 0,
+            embeds: msg.embeds ? msg.embeds.map(embed => ({
+                title: embed.title,
+                description: embed.description,
+                fields: embed.fields ? embed.fields.map(field => ({
+                    name: field.name,
+                    value: field.value
+                })) : []
+            })) : []
         }));
         
         res.json({
-            message: 'Últimas 5 mensagens do canal para debug',
+            message: 'Últimas 5 mensagens do canal para debug (com embeds)',
             messages: rawMessages
         });
     } catch (error) {
