@@ -47,7 +47,7 @@ let serverHealth = {
     successCount: 0
 };
 
-// PADRÕES APRIMORADOS PARA DETECÇÃO DE JOB IDS
+// PADRÕES MELHORADOS PARA DETECÇÃO DE JOB IDS
 const JOB_ID_PATTERNS = [
     // Padrões específicos do Brainrot Notify
     /Job\s*ID\s*\(Mobile\)[:\s]*\n([a-zA-Z0-9]{8,12})/gi,
@@ -55,17 +55,32 @@ const JOB_ID_PATTERNS = [
     /Job\s*ID\s*\(PC\)[:\s]*\n([a-zA-Z0-9]{8,12})/gi,
     /Job\s*ID\s*\(Desktop\)[:\s]*\n([a-zA-Z0-9]{8,12})/gi,
     
-    // Padrões genéricos
+    // Padrões genéricos melhorados
     /Job\s*ID[:\s]*\(?([a-zA-Z0-9]{8,12})\)?/gi,
     /JobID[:\s]*([a-zA-Z0-9]{8,12})/gi,
     /Server\s*ID[:\s]*([a-zA-Z0-9]{8,12})/gi,
+    /ID[:\s]*([a-zA-Z0-9]{8,12})/gi,
+    
+    // Padrões com diferentes separadores
+    /Job\s*[-:=]\s*([a-zA-Z0-9]{8,12})/gi,
+    /Server\s*[-:=]\s*([a-zA-Z0-9]{8,12})/gi,
+    
+    // Padrões para formatação Discord
+    /```([a-zA-Z0-9]{8,12})```/gi,
+    /`([a-zA-Z0-9]{8,12})`/gi,
+    /\*\*([a-zA-Z0-9]{8,12})\*\*/gi,
+    
+    // Padrões com palavras-chave
+    /(?:join|server|game)\s*(?:id|code)[:\s]*([a-zA-Z0-9]{8,12})/gi,
+    
+    // Padrão mais flexível (usar com cuidado)
+    /\b([a-zA-Z0-9]{8,12})\b/gi,
     
     // Padrões de embed fields
-    /(?:Job|Server)\s*(?:ID|Code)[:\s]*([a-zA-Z0-9]{8,12})/gi,
+    /(?:Job|Server|Game)\s*(?:ID|Code|Key)[:\s]*`?([a-zA-Z0-9]{8,12})`?/gi,
     
-    // Padrões específicos para formatos de bot
-    /\*\*Job\s*ID\*\*[:\s]*`?([a-zA-Z0-9]{8,12})`?/gi,
-    /`([a-zA-Z0-9]{8,12})`/g // IDs em backticks
+    // IDs sozinhos em linhas
+    /\n\s*([a-zA-Z0-9]{8,12})\s*\n/gi,
 ];
 
 // Buscar mensagens com retry automático
@@ -80,7 +95,7 @@ async function fetchDiscordMessages(retries = 3) {
                     headers: {
                         'Authorization': `Bot ${DISCORD_TOKEN}`,
                         'Content-Type': 'application/json',
-                        'User-Agent': 'GhostAutoJoin/3.0'
+                        'User-Agent': 'GhostAutoJoin/3.1'
                     },
                     timeout: 10000 // 10 segundos timeout
                 }
@@ -115,7 +130,7 @@ async function fetchDiscordMessages(retries = 3) {
     return [];
 }
 
-// Processamento inteligente com múltiplos padrões
+// PROCESSAMENTO MELHORADO COM MAIS DEBUG
 function processMessages(messages) {
     const processedData = [];
     const now = Date.now();
@@ -131,71 +146,116 @@ function processMessages(messages) {
             return;
         }
         
-        // Combinar conteúdo da mensagem + embeds
-        let fullContent = message.content || '';
+        // Construir conteúdo completo
+        let fullContent = '';
         
-        // Processar embeds
+        // Adicionar conteúdo da mensagem
+        if (message.content) {
+            fullContent += message.content + '\n';
+        }
+        
+        // Processar embeds com mais detalhes
         if (message.embeds && message.embeds.length > 0) {
             message.embeds.forEach(embed => {
-                if (embed.title) fullContent += '\n' + embed.title;
-                if (embed.description) fullContent += '\n' + embed.description;
+                if (embed.title) fullContent += embed.title + '\n';
+                if (embed.description) fullContent += embed.description + '\n';
                 if (embed.fields) {
                     embed.fields.forEach(field => {
-                        fullContent += '\n' + field.name + ': ' + field.value;
+                        fullContent += `${field.name}: ${field.value}\n`;
                     });
                 }
+                if (embed.footer && embed.footer.text) fullContent += embed.footer.text + '\n';
             });
         }
+        
+        // Debug melhorado
+        console.log(`📝 Mensagem ${index + 1}: "${fullContent.substring(0, 150)}..."`);
         
         // Tentar todos os padrões
         const foundJobIds = new Set();
         let platform = 'Unknown';
+        let bestConfidence = 0;
         
-        JOB_ID_PATTERNS.forEach(pattern => {
-            let match;
-            const globalPattern = new RegExp(pattern.source, pattern.flags);
+        JOB_ID_PATTERNS.forEach((pattern, patternIndex) => {
+            const matches = [...fullContent.matchAll(pattern)];
             
-            while ((match = globalPattern.exec(fullContent)) !== null) {
-                const jobId = match[1];
+            matches.forEach(match => {
+                const potentialJobId = match[1];
                 
-                // Validar Job ID (8-12 caracteres alfanuméricos)
-                if (/^[a-zA-Z0-9]{8,12}$/.test(jobId)) {
-                    foundJobIds.add(jobId);
+                // Validação mais flexível
+                if (potentialJobId && /^[a-zA-Z0-9]{8,12}$/.test(potentialJobId)) {
+                    // Evitar falsos positivos comuns
+                    const lowerJobId = potentialJobId.toLowerCase();
+                    const falsePositives = [
+                        'javascript', 'undefined', 'function', 'document',
+                        'username', 'password', 'admin123', 'test1234', 'localhost'
+                    ];
                     
-                    // Determinar plataforma
-                    if (fullContent.includes('Mobile') || fullContent.includes('mobile')) platform = 'Mobile';
-                    else if (fullContent.includes('iOS') || fullContent.includes('ios')) platform = 'iOS';
-                    else if (fullContent.includes('PC') || fullContent.includes('Desktop')) platform = 'PC';
+                    if (!falsePositives.some(fp => lowerJobId.includes(fp))) {
+                        foundJobIds.add(potentialJobId);
+                        console.log(`🎯 Padrão ${patternIndex + 1} encontrou: ${potentialJobId}`);
+                        
+                        // Determinar plataforma
+                        if (/mobile|android|ios|iphone|ipad/i.test(fullContent)) {
+                            platform = 'Mobile';
+                        } else if (/pc|desktop|computer|windows|mac/i.test(fullContent)) {
+                            platform = 'PC';
+                        } else if (/xbox|console/i.test(fullContent)) {
+                            platform = 'Console';
+                        }
+                        
+                        // Calcular confiança
+                        let confidence = 10;
+                        if (/job\s*id/i.test(fullContent)) confidence += 30;
+                        if (/server/i.test(fullContent)) confidence += 20;
+                        if (/join/i.test(fullContent)) confidence += 15;
+                        
+                        bestConfidence = Math.max(bestConfidence, confidence);
+                    }
                 }
-            }
+            });
         });
         
+        // Fallback: busca mais simples se não encontrou nada
+        if (foundJobIds.size === 0) {
+            const fallbackMatches = fullContent.match(/\b[a-zA-Z0-9]{8,12}\b/g);
+            if (fallbackMatches) {
+                fallbackMatches.forEach(match => {
+                    if (!/^\d+$/.test(match) && !/^[a-f0-9]+$/i.test(match)) { // Evitar números puros e hex
+                        foundJobIds.add(match);
+                        console.log(`🔄 Fallback encontrou: ${match}`);
+                        bestConfidence = Math.max(bestConfidence, 5);
+                    }
+                });
+            }
+        }
+        
         if (foundJobIds.size > 0) {
-            // Extrair informações adicionais com padrões mais robustos
-            const extractInfo = (patterns) => {
+            // Extrair informações adicionais
+            const extractInfo = (patterns, defaultValue = null) => {
                 for (const pattern of patterns) {
                     const match = fullContent.match(pattern);
-                    if (match) return match[1].trim();
+                    if (match && match[1]) return match[1].trim();
                 }
-                return null;
+                return defaultValue;
             };
             
             const serverName = extractInfo([
-                /(?:Name|Server\s*Name)[:\s]*\n(.+)/i,
-                /\*\*(?:Name|Server)\*\*[:\s]*(.+)/i,
-                /Server[:\s]+(.+)/i
+                /(?:Server\s*)?Name[:\s]*([^\n]+)/i,
+                /\*\*(?:Name|Server)\*\*[:\s]*([^\n]+)/i,
+                /Title[:\s]*([^\n]+)/i
             ]);
             
             const moneyPerSec = extractInfo([
-                /Money\s*per\s*sec[:\s]*\n(.+)/i,
-                /\$\/s[:\s]*(.+)/i,
-                /Money[:\s]*(.+)/i
+                /Money\s*per\s*sec[:\s]*([^\n]+)/i,
+                /\$\/s[:\s]*([^\n]+)/i,
+                /Income[:\s]*([^\n]+)/i
             ]);
             
             const players = extractInfo([
-                /Players[:\s]*\n(\d+\/\d+)/i,
-                /\*\*Players\*\*[:\s]*(\d+\/\d+)/i,
-                /(\d+\/\d+)\s*players/i
+                /Players?[:\s]*(\d+(?:\/\d+)?)/i,
+                /(\d+\/\d+)\s*players?/i,
+                /Online[:\s]*(\d+)/i
             ]);
             
             const processedEntry = {
@@ -213,31 +273,33 @@ function processMessages(messages) {
                 content_preview: fullContent.substring(0, 200),
                 has_embeds: message.embeds && message.embeds.length > 0,
                 embed_count: message.embeds ? message.embeds.length : 0,
-                freshness_score: Math.max(0, 100 - (messageAge / 60000)), // Score baseado na idade
-                confidence: foundJobIds.size * 20 + (serverName ? 20 : 0) + (players ? 10 : 0) // Score de confiança
+                freshness_score: Math.max(0, 100 - (messageAge / 60000)),
+                confidence: bestConfidence + (foundJobIds.size * 10),
+                detection_method: 'enhanced'
             };
             
             processedData.push(processedEntry);
-            console.log(`🎯 JobIDs encontrados: [${Array.from(foundJobIds).join(', ')}] - Plataforma: ${platform} - Confiança: ${processedEntry.confidence}%`);
+            console.log(`✅ ${foundJobIds.size} Job ID(s): [${Array.from(foundJobIds).join(', ')}] - Confiança: ${processedEntry.confidence}%`);
+        } else {
+            console.log(`❌ Nenhum Job ID na mensagem ${index + 1} de ${message.author.username}`);
         }
     });
     
-    // Ordenar por freshness e confidence
+    // Ordenar por confiança e freshness
     const sorted = processedData.sort((a, b) => {
-        const scoreA = a.freshness_score + (a.confidence / 10);
-        const scoreB = b.freshness_score + (b.confidence / 10);
+        const scoreA = (a.freshness_score * 0.6) + (a.confidence * 0.4);
+        const scoreB = (b.freshness_score * 0.6) + (b.confidence * 0.4);
         return scoreB - scoreA;
     });
     
-    console.log(`🚀 Total processado: ${sorted.length} entradas válidas`);
+    console.log(`🚀 Total processado: ${sorted.length} entradas válidas de ${messages.length} mensagens`);
     return sorted;
 }
 
-// ENDPOINT PRINCIPAL ULTRA-OTIMIZADO
+// ENDPOINT PRINCIPAL
 app.get('/pets', async (req, res) => {
     totalRequests++;
     const now = Date.now();
-    const clientTimestamp = req.query.t || now;
     
     // Headers para otimização
     res.set({
@@ -247,7 +309,7 @@ app.get('/pets', async (req, res) => {
         'X-Server-Health': serverHealth.status
     });
     
-    // Verificar cache inteligente
+    // Verificar cache
     if (now - lastFetch < CACHE_TIME && cachedData.length > 0) {
         console.log(`📦 Cache hit - Idade: ${Math.floor((now - lastFetch) / 1000)}s`);
         successRequests++;
@@ -283,7 +345,7 @@ app.get('/pets', async (req, res) => {
         successRequests++;
         serverHealth.status = 'healthy';
         
-        console.log(`🚀 Retornando ${processedData.length} entradas ultra-frescas`);
+        console.log(`🚀 Retornando ${processedData.length} entradas`);
         
         res.json({
             data: processedData,
@@ -308,7 +370,7 @@ app.get('/pets', async (req, res) => {
     }
 });
 
-// Health check avançado
+// Health check
 app.get('/health', (req, res) => {
     const uptime = process.uptime();
     const memUsage = process.memoryUsage();
@@ -343,7 +405,71 @@ app.get('/health', (req, res) => {
     res.json(healthStatus);
 });
 
-// Endpoint para força refresh
+// Debug melhorado
+app.get('/debug', async (req, res) => {
+    try {
+        const messages = await fetchDiscordMessages();
+        
+        // Análise detalhada das primeiras mensagens
+        const detailedAnalysis = messages.slice(0, 5).map(msg => {
+            let fullContent = msg.content || '';
+            
+            if (msg.embeds) {
+                msg.embeds.forEach(embed => {
+                    if (embed.title) fullContent += '\n' + embed.title;
+                    if (embed.description) fullContent += '\n' + embed.description;
+                    if (embed.fields) {
+                        embed.fields.forEach(field => {
+                            fullContent += `\n${field.name}: ${field.value}`;
+                        });
+                    }
+                });
+            }
+            
+            // Testar cada padrão
+            const patternResults = JOB_ID_PATTERNS.map((pattern, index) => {
+                const matches = [...fullContent.matchAll(pattern)];
+                return {
+                    pattern_index: index,
+                    pattern: pattern.source,
+                    matches: matches.map(m => m[1]).filter(id => id && /^[a-zA-Z0-9]{8,12}$/.test(id))
+                };
+            }).filter(result => result.matches.length > 0);
+            
+            return {
+                message_id: msg.id,
+                author: msg.author.username,
+                timestamp: msg.timestamp,
+                age_minutes: Math.floor((Date.now() - new Date(msg.timestamp).getTime()) / 60000),
+                content_length: fullContent.length,
+                content_preview: fullContent.substring(0, 300),
+                has_embeds: msg.embeds && msg.embeds.length > 0,
+                pattern_matches: patternResults
+            };
+        });
+        
+        res.json({
+            server_info: {
+                version: 'Ghost AutoJoin v3.1 Enhanced',
+                patterns_count: JOB_ID_PATTERNS.length,
+                cache_time: CACHE_TIME,
+                max_messages: MAX_MESSAGES
+            },
+            total_messages: messages.length,
+            detailed_analysis: detailedAnalysis,
+            processed_sample: cachedData.slice(0, 3),
+            server_health: serverHealth
+        });
+        
+    } catch (error) {
+        res.status(500).json({ 
+            error: error.message,
+            processed_sample: cachedData.slice(0, 2)
+        });
+    }
+});
+
+// Refresh forçado
 app.post('/refresh', async (req, res) => {
     try {
         lastFetch = 0; // Force cache miss
@@ -366,43 +492,7 @@ app.post('/refresh', async (req, res) => {
     }
 });
 
-// Endpoint de debug completo
-app.get('/debug', async (req, res) => {
-    try {
-        const messages = await fetchDiscordMessages();
-        const rawSamples = messages.slice(0, 3).map(msg => ({
-            id: msg.id,
-            content: msg.content?.substring(0, 300) + '...',
-            author: msg.author.username,
-            timestamp: msg.timestamp,
-            age_minutes: Math.floor((Date.now() - new Date(msg.timestamp).getTime()) / 60000),
-            embeds: msg.embeds ? msg.embeds.map(embed => ({
-                title: embed.title,
-                description: embed.description?.substring(0, 100),
-                fields_count: embed.fields ? embed.fields.length : 0
-            })) : []
-        }));
-        
-        res.json({
-            server_info: {
-                version: 'Ghost AutoJoin v3.0',
-                patterns_count: JOB_ID_PATTERNS.length,
-                cache_time: CACHE_TIME,
-                max_messages: MAX_MESSAGES
-            },
-            raw_samples: rawSamples,
-            processed_sample: cachedData.slice(0, 2),
-            patterns: JOB_ID_PATTERNS.map((p, i) => `${i + 1}: ${p.source}`)
-        });
-    } catch (error) {
-        res.status(500).json({ 
-            error: error.message,
-            processed_sample: cachedData.slice(0, 2)
-        });
-    }
-});
-
-// Keep-alive otimizado para Render
+// Keep-alive
 app.get('/keepalive', (req, res) => {
     res.json({
         status: 'alive',
@@ -411,7 +501,7 @@ app.get('/keepalive', (req, res) => {
     });
 });
 
-// Middleware de erro global
+// Middleware de erro
 app.use((error, req, res, next) => {
     console.error('❌ Erro não tratado:', error);
     res.status(500).json({
@@ -428,7 +518,7 @@ app.use((req, res) => {
     });
 });
 
-// Auto keep-alive system
+// Auto keep-alive para Render
 if (process.env.RENDER_SERVICE_NAME) {
     setInterval(async () => {
         try {
@@ -437,19 +527,19 @@ if (process.env.RENDER_SERVICE_NAME) {
         } catch (error) {
             console.log('⚠️ Keep-alive ping failed');
         }
-    }, 10 * 60 * 1000); // 10 minutos
+    }, 10 * 60 * 1000);
 }
 
 // Inicialização
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`🚀 Ghost AutoJoin Backend v3.0 - Porta ${PORT}`);
-    console.log(`🎯 Endpoints disponíveis:`);
-    console.log(`   • GET  /pets     - Dados principais (ultra-otimizado)`);
-    console.log(`   • GET  /health   - Status completo do sistema`);
+    console.log(`🚀 Ghost AutoJoin Backend v3.1 Enhanced - Porta ${PORT}`);
+    console.log(`🎯 Endpoints:`);
+    console.log(`   • GET  /pets     - Dados principais`);
+    console.log(`   • GET  /health   - Status do sistema`);
     console.log(`   • GET  /debug    - Debug detalhado`);
-    console.log(`   • POST /refresh  - Força refresh do cache`);
-    console.log(`   • GET  /keepalive - Keep-alive para Render`);
+    console.log(`   • POST /refresh  - Força refresh`);
+    console.log(`   • GET  /keepalive - Keep-alive`);
     
     console.log(`⚡ Configurações:`);
     console.log(`   • Cache: ${CACHE_TIME/1000}s`);
