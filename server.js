@@ -5,396 +5,345 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// CONFIGURAÇÕES DE ULTRA VELOCIDADE
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type']
+}));
+app.use(express.json({ limit: '1mb' }));
 
-// Cache de JobIds com timestamp ultra rápido
+// Desabilita logs desnecessários do Express
+app.set('x-powered-by', false);
+
+// Cache ultra rápido usando Map nativo (mais rápido que Object)
 const jobCache = new Map();
-const MAX_CACHE_SIZE = 1000;
-const CACHE_DURATION = 30 * 60 * 1000; // 30 minutos
+const freshJobIds = new Map(); // Cache separado para JobIds ultra-frescos
+const MAX_CACHE_SIZE = 500; // Reduzido para maior velocidade
+const CACHE_DURATION = 15 * 60 * 1000; // 15 minutos (reduzido)
+const ULTRA_FRESH_DURATION = 30 * 1000; // 30 segundos para ultra-fresco
 
-// Configuração do Bot Discord
+// Bot Discord com configuração mínima para máxima velocidade
 const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
     ],
-    partials: [Partials.Message, Partials.Channel]
+    partials: [], // Removido partials desnecessários
+    presence: { status: 'invisible' }, // Invisível para economizar recursos
+    ws: {
+        compress: false, // Desabilita compressão para velocidade
+        large_threshold: 50 // Reduzido
+    }
 });
 
-// Stats ultra rápidas
+// Stats ultra-minimalistas
 let stats = {
-    totalJobIds: 0,
-    freshJobIds: 0,
-    messagesProcessed: 0,
-    botStartTime: Date.now(),
-    lastJobId: null,
-    lastUpdate: null
+    total: 0,
+    fresh: 0,
+    processed: 0,
+    startTime: Date.now(),
+    lastJobId: null
 };
 
-// Função ultra rápida de limpeza do cache
-function cleanCache() {
-    const now = Date.now();
-    const keysToDelete = [];
+// Regex pré-compilada para máxima velocidade
+const JOB_ID_REGEX = /[a-zA-Z0-9\/\+]{45,70}/g;
+const FIELD_REGEX = /(?:server|job|id).*?[:=]\s*([a-zA-Z0-9\/\+]{45,70})/gi;
+
+// Função ultra-rápida de extração de JobIds
+function fastExtractJobIds(text) {
+    if (!text) return [];
     
-    for (const [key, data] of jobCache.entries()) {
-        if (now - data.timestamp > CACHE_DURATION) {
-            keysToDelete.push(key);
+    const ids = new Set();
+    let match;
+    
+    // Reset regex
+    JOB_ID_REGEX.lastIndex = 0;
+    FIELD_REGEX.lastIndex = 0;
+    
+    // Extração principal
+    while ((match = JOB_ID_REGEX.exec(text)) !== null) {
+        const id = match[0];
+        if (id.length >= 45 && id.length <= 70) {
+            ids.add(id);
         }
     }
     
-    keysToDelete.forEach(key => jobCache.delete(key));
+    // Extração de campos específicos
+    while ((match = FIELD_REGEX.exec(text)) !== null) {
+        const id = match[1];
+        if (id && id.length >= 45 && id.length <= 70) {
+            ids.add(id);
+        }
+    }
     
-    // Limita tamanho do cache
+    return Array.from(ids);
+}
+
+// Processamento ultra-rápido de embeds
+function fastProcessEmbeds(embeds) {
+    let text = '';
+    let jobIds = [];
+    
+    for (const embed of embeds) {
+        // Concatena apenas campos essenciais
+        if (embed.description) text += embed.description + ' ';
+        if (embed.fields) {
+            for (const field of embed.fields) {
+                text += field.value + ' ';
+                // Extração direta dos campos mais importantes
+                if (field.name.toLowerCase().includes('server') || 
+                    field.name.toLowerCase().includes('job')) {
+                    const ids = fastExtractJobIds(field.value);
+                    jobIds.push(...ids);
+                }
+            }
+        }
+        if (embed.title) text += embed.title + ' ';
+    }
+    
+    // Extrai JobIds do texto concatenado
+    const textIds = fastExtractJobIds(text);
+    jobIds.push(...textIds);
+    
+    // Remove duplicatas usando Set (mais rápido)
+    return [...new Set(jobIds)];
+}
+
+// Limpeza ultra-rápida do cache
+function ultraCleanCache() {
+    const now = Date.now();
+    
+    // Limpa cache principal
+    for (const [key, data] of jobCache) {
+        if (now - data.timestamp > CACHE_DURATION) {
+            jobCache.delete(key);
+        }
+    }
+    
+    // Limpa cache de ultra-frescos
+    for (const [key, data] of freshJobIds) {
+        if (now - data.timestamp > ULTRA_FRESH_DURATION) {
+            freshJobIds.delete(key);
+        }
+    }
+    
+    // Controle de tamanho
     if (jobCache.size > MAX_CACHE_SIZE) {
-        const entries = Array.from(jobCache.entries());
-        const toDelete = entries
+        const oldest = [...jobCache.entries()]
             .sort((a, b) => a[1].timestamp - b[1].timestamp)
             .slice(0, jobCache.size - MAX_CACHE_SIZE);
         
-        toDelete.forEach(([key]) => jobCache.delete(key));
-    }
-}
-
-// Detector ultra agressivo de JobIds
-function extractJobIds(text) {
-    if (!text || typeof text !== 'string') return [];
-    
-    const jobIdPatterns = [
-        // Padrão principal do Roblox
-        /[a-zA-Z0-9]{40,70}/g,
-        // Padrões específicos observados
-        /[a-zA-Z0-9\/\+]{50,}/g,
-        // Job ID específico após dois pontos ou keywords
-        /(?:Job\s*ID.*?[:=]\s*)([a-zA-Z0-9\/\+]{40,})/gi,
-        // IDs em linhas separadas
-        /^[a-zA-Z0-9\/\+]{45,}$/gm,
-        // Padrões com underscores e hífens
-        /[a-zA-Z0-9\/_\-]{40,}/g
-    ];
-    
-    const foundJobIds = new Set();
-    
-    for (const pattern of jobIdPatterns) {
-        const matches = text.match(pattern);
-        if (matches) {
-            matches.forEach(match => {
-                // Limpa o match se necessário
-                const cleaned = match.replace(/^Job\s*ID.*?[:=]\s*/i, '').trim();
-                if (cleaned.length >= 40 && cleaned.length <= 100) {
-                    foundJobIds.add(cleaned);
-                }
-            });
+        for (const [key] of oldest) {
+            jobCache.delete(key);
         }
     }
-    
-    return Array.from(foundJobIds);
 }
 
-// Processamento ultra rápido de embeds
-function processEmbeds(embeds) {
-    let allText = '';
-    let jobIds = [];
+// Event listener ultra-otimizado
+client.on('messageCreate', message => {
+    // Filtros rápidos primeiro
+    if (!message.author.bot) return;
     
-    console.log(`📋 PROCESSANDO ${embeds.length} EMBEDS:`);
+    const username = message.author.username.toLowerCase();
+    if (!username.includes('brainrot') && 
+        !username.includes('notify') && 
+        !username.includes('mirror')) return;
     
-    embeds.forEach((embed, index) => {
-        console.log(`Embed ${index + 1}:`);
-        
-        // Título
-        if (embed.title) {
-            console.log(`  Título: ${embed.title}`);
-            allText += embed.title + '\n';
-        }
-        
-        // Descrição
-        if (embed.description) {
-            console.log(`  Descrição: ${embed.description.substring(0, 100)}...`);
-            allText += embed.description + '\n';
-        }
-        
-        // Campos (onde ficam os Job IDs)
-        if (embed.fields && embed.fields.length > 0) {
-            console.log(`  Campos: ${embed.fields.length}`);
-            embed.fields.forEach(field => {
-                console.log(`    ${field.name}: ${field.value}`);
-                allText += `${field.name}: ${field.value}\n`;
-                
-                // Extrai JobIds diretamente dos campos
-                const fieldJobIds = extractJobIds(field.value);
-                jobIds.push(...fieldJobIds);
-            });
-        }
-        
-        // Footer
-        if (embed.footer) {
-            console.log(`  Footer: ${embed.footer.text}`);
-            allText += embed.footer.text + '\n';
-        }
-        
-        // Author
-        if (embed.author) {
-            console.log(`  Autor: ${embed.author.name}`);
-            allText += embed.author.name + '\n';
-        }
-    });
-    
-    // Extrai JobIds de todo o texto também
-    const textJobIds = extractJobIds(allText);
-    jobIds.push(...textJobIds);
-    
-    // Remove duplicatas
-    jobIds = [...new Set(jobIds)];
-    
-    console.log(`🎯 TOTAL DE JobIds EXTRAÍDOS DOS EMBEDS: ${jobIds.length}`);
-    jobIds.forEach((id, i) => {
-        console.log(`   ${i + 1}: ${id}`);
-    });
-    
-    return { allText, jobIds };
-}
-
-// Event listener para mensagens do Discord
-client.on('messageCreate', async message => {
-    try {
-        // Verifica se é o canal correto
-        if (process.env.DISCORD_CHANNEL_ID && message.channel.id !== process.env.DISCORD_CHANNEL_ID) {
-            return;
-        }
-        
-        const isBot = message.author.bot;
-        const username = message.author.username;
-        const channelName = message.channel.name;
-        
-        console.log(`\n⚡ MENSAGEM RECEBIDA:`);
-        console.log(`Canal: ${channelName} (${message.channel.id})`);
-        console.log(`Autor: ${username} (Bot: ${isBot})`);
-        console.log(`Tamanho: ${message.content?.length || 0} chars`);
-        console.log(`Embeds: ${message.embeds?.length || 0}`);
-        console.log(`Conteúdo: "${message.content || ''}"`);
-        
-        // Prioritário para bots conhecidos
-        if (isBot && (username.toLowerCase().includes('brainrot') || 
-                      username.toLowerCase().includes('notify') ||
-                      username.toLowerCase().includes('mirror'))) {
-            console.log(`🎯 BOT PRIORITÁRIO DETECTADO: ${username}!`);
-        }
-        
-        let allJobIds = [];
-        let processedText = '';
-        
-        // 1. Processa conteúdo de texto
-        if (message.content) {
-            console.log(`📝 PROCESSANDO TEXTO DA MENSAGEM...`);
-            const textJobIds = extractJobIds(message.content);
-            allJobIds.push(...textJobIds);
-            processedText += message.content + '\n';
-        }
-        
-        // 2. Processa embeds (PRINCIPAL para Brainrot Notify)
-        if (message.embeds && message.embeds.length > 0) {
-            console.log(`📋 PROCESSANDO EMBEDS...`);
-            const { allText, jobIds } = processEmbeds(message.embeds);
-            allJobIds.push(...jobIds);
-            processedText += allText;
-        }
-        
-        // Remove duplicatas
-        allJobIds = [...new Set(allJobIds)];
-        
-        if (allJobIds.length > 0) {
-            console.log(`🎯 ENCONTRADOS ${allJobIds.length} JobIds ÚNICOS:`);
+    // Processamento assíncrono para não bloquear
+    setImmediate(() => {
+        try {
+            let allJobIds = [];
             
-            let newJobIds = 0;
-            const now = Date.now();
-            
-            allJobIds.forEach((jobId, index) => {
-                console.log(`   ${index + 1}: ${jobId}`);
-                
-                if (!jobCache.has(jobId)) {
-                    jobCache.set(jobId, {
-                        timestamp: now,
-                        source: `${username} (${channelName})`,
-                        placeId: process.env.PLACE_ID || '109983668079237'
-                    });
-                    newJobIds++;
-                }
-            });
-            
-            // Atualiza stats
-            stats.totalJobIds = jobCache.size;
-            stats.freshJobIds = newJobIds;
-            stats.messagesProcessed++;
-            stats.lastJobId = allJobIds[0];
-            stats.lastUpdate = new Date().toISOString();
-            
-            console.log(`🚀 ULTRA RÁPIDO: ${newJobIds} novos JobIds adicionados (Total: ${jobCache.size})`);
-            
-            // Reação na mensagem
-            try {
-                if (newJobIds > 0) {
-                    await message.react('🎯');
-                    console.log(`🎭 Reação 🎯 adicionada - ${newJobIds} novos JobIds`);
-                } else {
-                    await message.react('✅');
-                    console.log(`🎭 Reação ✅ adicionada - JobIds já conhecidos`);
-                }
-            } catch (error) {
-                console.log(`❌ Erro ao reagir: ${error.message}`);
+            // Prioriza embeds (mais rápido)
+            if (message.embeds?.length > 0) {
+                allJobIds = fastProcessEmbeds(message.embeds);
+            } else if (message.content) {
+                allJobIds = fastExtractJobIds(message.content);
             }
             
-        } else {
-            console.log(`⏭️ Nenhum JobId encontrado`);
-            stats.messagesProcessed++;
+            if (allJobIds.length === 0) return;
+            
+            const now = Date.now();
+            let newCount = 0;
+            
+            // Adiciona aos caches
+            for (const jobId of allJobIds) {
+                if (!jobCache.has(jobId)) {
+                    const data = {
+                        timestamp: now,
+                        source: username
+                    };
+                    
+                    jobCache.set(jobId, data);
+                    freshJobIds.set(jobId, data); // Também no cache de frescos
+                    newCount++;
+                }
+            }
+            
+            if (newCount > 0) {
+                stats.total = jobCache.size;
+                stats.fresh += newCount;
+                stats.processed++;
+                stats.lastJobId = allJobIds[0];
+                
+                // Reação assíncrona sem await (mais rápido)
+                message.react('🎯').catch(() => {});
+            }
+            
+        } catch (error) {
+            // Log mínimo para não afetar performance
+            console.error('E:', error.message);
         }
-        
-        // Limpeza rápida do cache
-        if (Math.random() < 0.1) { // 10% das vezes
-            cleanCache();
-        }
-        
-    } catch (error) {
-        console.error('❌ Erro ao processar mensagem:', error);
-    }
+    });
 });
 
-// Bot eventos
-client.on('ready', () => {
-    console.log(`✅ Bot conectado: ${client.user.tag}`);
-});
+// Eventos mínimos do bot
+client.on('ready', () => console.log(`✅ ${client.user.tag} ONLINE`));
+client.on('error', () => {}); // Silencia erros não críticos
 
-client.on('error', (error) => {
-    console.error('❌ Erro do Discord:', error);
-});
-
-// Endpoints da API Ultra Rápida
+// ENDPOINT ULTRA-RÁPIDO PRINCIPAL
 app.get('/pets/fresh', (req, res) => {
+    // Headers para máxima velocidade
+    res.set({
+        'Cache-Control': 'no-cache, no-store, max-age=0',
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+    });
+    
     try {
         const now = Date.now();
-        const freshJobIds = Array.from(jobCache.entries())
-            .filter(([_, data]) => now - data.timestamp < CACHE_DURATION)
-            .map(([jobId, data]) => ({
-                jobId,
-                timestamp: data.timestamp,
-                source: data.source,
-                placeId: data.placeId
-            }))
-            .sort((a, b) => b.timestamp - a.timestamp);
         
-        res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+        // Usa o cache de ultra-frescos diretamente
+        const freshData = [];
+        for (const [jobId, data] of freshJobIds) {
+            if (now - data.timestamp < ULTRA_FRESH_DURATION) {
+                freshData.push({
+                    jobId,
+                    timestamp: data.timestamp,
+                    source: data.source
+                });
+            }
+        }
+        
+        // Ordena por timestamp (mais recente primeiro)
+        freshData.sort((a, b) => b.timestamp - a.timestamp);
+        
         res.json({
             success: true,
-            count: freshJobIds.length,
-            jobIds: freshJobIds,
+            count: freshData.length,
+            jobIds: freshData,
             timestamp: now
         });
         
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Internal error' });
     }
 });
 
+// Status ultra-simples
 app.get('/bot/status', (req, res) => {
     res.json({
         ...stats,
         cacheSize: jobCache.size,
-        uptime: Date.now() - stats.botStartTime,
-        botConnected: client.isReady()
+        freshSize: freshJobIds.size,
+        uptime: Date.now() - stats.startTime,
+        connected: client.isReady()
     });
 });
 
-// Endpoint de teste
+// Teste rápido
 app.post('/bot/test', (req, res) => {
-    try {
-        const { text } = req.body;
-        const jobIds = extractJobIds(text);
-        
-        console.log(`🧪 TESTE MANUAL: "${text}"`);
-        console.log(`🎯 JobIds encontrados: ${jobIds.length}`);
-        
-        jobIds.forEach((jobId, index) => {
-            console.log(`   ${index + 1}: ${jobId}`);
-            jobCache.set(jobId, {
-                timestamp: Date.now(),
-                source: 'TESTE_MANUAL',
-                placeId: process.env.PLACE_ID || '109983668079237'
-            });
-        });
-        
-        res.json({
-            success: true,
-            jobIdsFound: jobIds.length,
-            jobIds: jobIds,
-            added: jobIds.length
-        });
-        
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+    const { text } = req.body;
+    const jobIds = fastExtractJobIds(text || '');
+    
+    const now = Date.now();
+    for (const jobId of jobIds) {
+        jobCache.set(jobId, { timestamp: now, source: 'TEST' });
+        freshJobIds.set(jobId, { timestamp: now, source: 'TEST' });
     }
+    
+    res.json({
+        success: true,
+        found: jobIds.length,
+        jobIds
+    });
 });
 
-// Rota principal
+// Root endpoint mínimo
 app.get('/', (req, res) => {
     res.json({
-        message: '🚀 AutoJoin API Ultra Rápida Online!',
-        endpoints: {
-            '/pets/fresh': 'JobIds mais frescos',
-            '/bot/status': 'Status do bot',
-            '/bot/test': 'Teste manual (POST)'
-        },
-        stats
+        status: 'ULTRA FAST',
+        uptime: Date.now() - stats.startTime,
+        cache: jobCache.size,
+        fresh: freshJobIds.size
     });
 });
 
-// Inicialização com Keep-Alive
-const startServer = async () => {
+// Limpeza automática ultra-eficiente (apenas quando necessário)
+let lastClean = Date.now();
+setInterval(() => {
+    // Limpa apenas se passou tempo suficiente OU cache está cheio
+    if (Date.now() - lastClean > 30000 || jobCache.size > MAX_CACHE_SIZE) {
+        ultraCleanCache();
+        lastClean = Date.now();
+    }
+}, 5000); // Verifica a cada 5 segundos
+
+// Keep-alive ultra-simples
+const keepAliveUrl = `https://autojoin-api.onrender.com/bot/status`;
+let keepAliveActive = true;
+
+function ultraKeepAlive() {
+    if (!keepAliveActive) return;
+    
+    require('https').get(keepAliveUrl, (res) => {
+        // Só loga se houver erro
+        if (res.statusCode !== 200) {
+            console.log(`Keep-alive: ${res.statusCode}`);
+        }
+    }).on('error', () => {
+        // Silencia erros de keep-alive
+    });
+    
+    setTimeout(ultraKeepAlive, 14 * 60 * 1000); // 14 minutos
+}
+
+// Inicialização ultra-rápida
+async function ultraStart() {
     try {
-        // Inicia o bot Discord
+        // Bot Discord
         if (process.env.DISCORD_BOT_TOKEN) {
             await client.login(process.env.DISCORD_BOT_TOKEN);
-            console.log('🤖 Bot Discord iniciado!');
-        } else {
-            console.log('⚠️ DISCORD_BOT_TOKEN não configurado');
+            console.log('🤖 Bot ONLINE');
         }
         
-        // Inicia o servidor
+        // Servidor
         app.listen(PORT, () => {
-            console.log(`🚀 Servidor rodando na porta ${PORT}`);
-            console.log(`📡 API: https://autojoin-api.onrender.com`);
-            console.log(`⚡ Ultra Fresh: https://autojoin-api.onrender.com/pets/fresh`);
-            console.log(`🎯 Configurado para JobIds únicos com duração máxima de ${MAX_FRESH_DURATION / 1000}s`);
+            console.log(`🚀 ULTRA FAST SERVER: ${PORT}`);
+            console.log(`⚡ Fresh: /pets/fresh`);
+            console.log(`📊 Status: /bot/status`);
             
-            // Inicia o keep-alive
-            startKeepAlive();
+            // Inicia keep-alive
+            ultraKeepAlive();
         });
         
-        // Limpeza automática do cache a cada 10 segundos
-        setInterval(() => {
-            cleanCache();
-        }, 10000);
-        
-        console.log('🧹 Limpeza automática de cache configurada (10s)');
-        
     } catch (error) {
-        console.error('❌ Erro ao iniciar:', error);
-        stopKeepAlive();
+        console.error('❌ Start error:', error.message);
         process.exit(1);
     }
-};
+}
 
-// Cleanup ao encerrar
+// Cleanup rápido
 process.on('SIGTERM', () => {
-    console.log('🛑 Recebido SIGTERM - encerrando graciosamente...');
-    stopKeepAlive();
+    keepAliveActive = false;
     process.exit(0);
 });
 
 process.on('SIGINT', () => {
-    console.log('🛑 Recebido SIGINT - encerrando graciosamente...');
-    stopKeepAlive();
+    keepAliveActive = false;
     process.exit(0);
 });
 
-startServer();
+// Start
+ultraStart();
