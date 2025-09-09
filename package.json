@@ -1,7 +1,7 @@
 {
-  "name": "autojoin-backend",
-  "version": "1.0.0",
-  "description": "Backend API para AutoJoin do Roblox",
+  "name": "autojoin-discord-backend",
+  "version": "3.0.0",
+  "description": "Backend API para AutoJoin com Bot Discord integrado",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -11,6 +11,8 @@
   "keywords": [
     "roblox",
     "autojoin",
+    "discord",
+    "bot",
     "api",
     "backend",
     "express"
@@ -19,7 +21,8 @@
   "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "discord.js": "^14.14.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
