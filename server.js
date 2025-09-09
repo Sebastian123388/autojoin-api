@@ -348,7 +348,7 @@ app.get('/', (req, res) => {
     });
 });
 
-// Inicialização
+// Inicialização com Keep-Alive
 const startServer = async () => {
     try {
         // Inicia o bot Discord
@@ -363,13 +363,38 @@ const startServer = async () => {
         app.listen(PORT, () => {
             console.log(`🚀 Servidor rodando na porta ${PORT}`);
             console.log(`📡 API: https://autojoin-api.onrender.com`);
-            console.log(`🎯 Fresh JobIds: https://autojoin-api.onrender.com/pets/fresh`);
+            console.log(`⚡ Ultra Fresh: https://autojoin-api.onrender.com/pets/fresh`);
+            console.log(`🎯 Configurado para JobIds únicos com duração máxima de ${MAX_FRESH_DURATION / 1000}s`);
+            
+            // Inicia o keep-alive
+            startKeepAlive();
         });
+        
+        // Limpeza automática do cache a cada 10 segundos
+        setInterval(() => {
+            cleanCache();
+        }, 10000);
+        
+        console.log('🧹 Limpeza automática de cache configurada (10s)');
         
     } catch (error) {
         console.error('❌ Erro ao iniciar:', error);
+        stopKeepAlive();
         process.exit(1);
     }
 };
+
+// Cleanup ao encerrar
+process.on('SIGTERM', () => {
+    console.log('🛑 Recebido SIGTERM - encerrando graciosamente...');
+    stopKeepAlive();
+    process.exit(0);
+});
+
+process.on('SIGINT', () => {
+    console.log('🛑 Recebido SIGINT - encerrando graciosamente...');
+    stopKeepAlive();
+    process.exit(0);
+});
 
 startServer();
