@@ -1,15 +1,13 @@
-// server.js - Bot Monitor do Chilli Hub
+// server.js - Bot Monitor do Chilli Hub (otimizado)
 const express = require('express');
 const { Client, GatewayIntentBits } = require('discord.js');
 
-// Configuração do Express
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
 app.use(express.json());
 
-// Configuração do Discord Bot
+// Configuração do bot Discord
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -18,7 +16,6 @@ const client = new Client({
     ]
 });
 
-// Variáveis de ambiente
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 const PLACE_ID = process.env.PLACE_ID;
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
@@ -32,103 +29,19 @@ let botStatus = {
     startTime: new Date()
 };
 
-// Função para extrair informações do job
-function extractJobInfo(content) {
-    const jobInfo = {
-        timestamp: new Date().toISOString(),
-        raw: content
-    };
-    
-    try {
-        // Extrair nome do servidor
-        const nameMatch = content.match(/💰\s*Name[:\s]*([^\n]+)/i) || 
-                         content.match(/Name[:\s]*([^\n]+)/i);
-        if (nameMatch) jobInfo.serverName = nameMatch[1].trim();
-        
-        // Extrair dinheiro por segundo
-        const moneyMatch = content.match(/💰\s*Money per sec[:\s]*([^\n]+)/i) ||
-                          content.match(/Money per sec[:\s]*([^\n]+)/i);
-        if (moneyMatch) jobInfo.moneyPerSec = moneyMatch[1].trim();
-        
-        // Extrair players
-        const playersMatch = content.match(/💎\s*Players[:\s]*([^\n]+)/i) ||
-                            content.match(/Players[:\s]*([^\n]+)/i);
-        if (playersMatch) jobInfo.players = playersMatch[1].trim();
-        
-        // Extrair Job IDs
-        const mobileMatch = content.match(/Job ID \(Mobile\)[:\s]*([^\n]+)/i);
-        if (mobileMatch) jobInfo.jobIdMobile = mobileMatch[1].trim();
-        
-        const iosMatch = content.match(/Job ID \(iOS\)[:\s]*([^\n]+)/i);
-        if (iosMatch) jobInfo.jobIdIOS = iosMatch[1].trim();
-        
-        const pcMatch = content.match(/Job ID \(PC\)[:\s]*([^\n]+)/i);
-        if (pcMatch) jobInfo.jobIdPC = pcMatch[1].trim();
-        
-    } catch (error) {
-        console.error('❌ Erro ao extrair informações do job:', error);
-    }
-    
-    return jobInfo;
+// 👉 Função leve para extrair apenas Job ID (PC)
+function extractPCJobID(content) {
+    const match = content.match(/Job ID \(PC\)[:\s]*([^\n]+)/i);
+    return match ? match[1].trim() : null;
 }
 
-// Função para verificar se é mensagem de job
-function isJobMessage(message) {
-    const content = message.content;
-    const embedContent = message.embeds?.[0]?.description || '';
-    const fullContent = content + ' ' + embedContent;
-    
-    // Indicadores de mensagem de job
-    const hasJobId = fullContent.includes('Job ID');
-    const hasMoneyOrPlayers = fullContent.includes('Money per sec') || 
-                             fullContent.includes('Players') ||
-                             fullContent.includes('💰') ||
-                             fullContent.includes('💎');
-    
-    return hasJobId && hasMoneyOrPlayers;
-}
-
-// Função para verificar se tem Job ID do PC
+// Verifica se tem Job ID (PC) na mensagem
 function hasPCJobID(message) {
     const content = message.content;
     const embedContent = message.embeds?.[0]?.description || '';
     const fullContent = content + ' ' + embedContent;
-    
-    return fullContent.includes('Job ID (PC)');
-}
 
-// Função para extrair Job ID do PC
-function extractPCJobID(content) {
-    const jobInfo = {
-        timestamp: new Date().toISOString(),
-        raw: content
-    };
-    
-    try {
-        // Extrair nome do servidor
-        const nameMatch = content.match(/💰\s*Name[:\s]*([^\n]+)/i) || 
-                         content.match(/Name[:\s]*([^\n]+)/i);
-        if (nameMatch) jobInfo.serverName = nameMatch[1].trim();
-        
-        // Extrair dinheiro por segundo
-        const moneyMatch = content.match(/💰\s*Money per sec[:\s]*([^\n]+)/i) ||
-                          content.match(/Money per sec[:\s]*([^\n]+)/i);
-        if (moneyMatch) jobInfo.moneyPerSec = moneyMatch[1].trim();
-        
-        // Extrair players
-        const playersMatch = content.match(/💎\s*Players[:\s]*([^\n]+)/i) ||
-                            content.match(/Players[:\s]*([^\n]+)/i);
-        if (playersMatch) jobInfo.players = playersMatch[1].trim();
-        
-        // Extrair Job ID do PC
-        const pcMatch = content.match(/Job ID \(PC\)[:\s]*([^\n]+)/i);
-        if (pcMatch) jobInfo.jobIdPC = pcMatch[1].trim();
-        
-    } catch (error) {
-        console.error('❌ Erro ao extrair Job ID do PC:', error);
-    }
-    
-    return jobInfo;
+    return fullContent.includes('Job ID (PC)');
 }
 
 // Event: Bot pronto
@@ -138,10 +51,9 @@ client.once('ready', () => {
     console.log(`📱 Bot: ${client.user.tag}`);
     console.log(`📺 Canal: ${DISCORD_CHANNEL_ID}`);
     console.log(`🎮 Place ID: ${PLACE_ID}`);
-    console.log(`🔥 Modo: REAL TIME MONITORING`);
-    console.log('⚠️  MONITORANDO BOTS E USUÁRIOS');
+    console.log(`🔥 Modo: LEVE - SOMENTE JOB ID (PC)`);
     console.log('═══════════════════════════════════════');
-    
+
     botStatus.online = true;
     botStatus.monitoring = true;
 });
@@ -149,108 +61,46 @@ client.once('ready', () => {
 // Event: Monitor de mensagens
 client.on('messageCreate', async (message) => {
     try {
-        // LOG DE DEBUG: Toda mensagem que chega
-        console.log(`🔍 [DEBUG] Mensagem recebida:`);
-        console.log(`   📍 Canal: ${message.channel.id} (esperado: ${DISCORD_CHANNEL_ID})`);
-        console.log(`   👤 Autor: ${message.author.username} (bot: ${message.author.bot})`);
-        console.log(`   📝 Conteúdo: ${message.content.substring(0, 100)}...`);
-        console.log(`   📎 Embeds: ${message.embeds.length}`);
-        
-        // ❌ REMOVIDO: Filtro que ignorava bots
-        // if (message.author.bot) {
-        //     console.log(`❌ Ignorando bot: ${message.author.username}`);
-        //     return;
-        // }
-        
-        // Agora aceita mensagens de bots E usuários
-        if (message.author.bot) {
-            console.log(`🤖 Processando mensagem de bot: ${message.author.username}`);
-        } else {
-            console.log(`👤 Processando mensagem de usuário: ${message.author.username}`);
-        }
-        
-        // Filtro: Verifica canal
-        if (message.channel.id !== DISCORD_CHANNEL_ID) {
-            console.log(`❌ Canal diferente. Recebido: ${message.channel.id}, Esperado: ${DISCORD_CHANNEL_ID}`);
-            return;
-        }
-        
-        console.log(`✅ Mensagem válida de: ${message.author.username}`);
-        console.log(`📄 Conteúdo completo: ${message.content}`);
-        
-        // Verifica se tem conteúdo em embeds
+        // Ignora mensagens de outros canais
+        if (message.channel.id !== DISCORD_CHANNEL_ID) return;
+
+        // Verifica se a mensagem tem Job ID (PC)
+        if (!hasPCJobID(message)) return;
+
+        // Extrai conteúdo da mensagem
+        let content = message.content;
         if (message.embeds.length > 0) {
-            console.log(`📎 Embed detectado:`);
-            message.embeds.forEach((embed, index) => {
-                console.log(`   Embed ${index + 1}:`);
-                console.log(`   📝 Title: ${embed.title || 'N/A'}`);
-                console.log(`   📄 Description: ${embed.description?.substring(0, 200) || 'N/A'}...`);
-            });
+            const embed = message.embeds[0];
+            content = embed.description || embed.title || content;
         }
-        
-        // Verifica se tem Job ID do PC
-        const hasPC = hasPCJobID(message);
-        console.log(`🔍 Tem Job ID (PC)? ${hasPC ? '✅ SIM' : '❌ NÃO'}`);
-        
-        if (hasPC) {
-            botStatus.jobsDetected++;
-            
-            console.log('🎯 ══════ JOB ID PC DETECTADO ══════');
-            
-            // Pega conteúdo da mensagem ou embed
-            let content = message.content;
-            if (message.embeds.length > 0) {
-                const embed = message.embeds[0];
-                content = embed.description || embed.title || content;
-                console.log(`📄 Usando conteúdo do embed: ${content.substring(0, 100)}...`);
-            }
-            
-            // Extrai Job ID do PC
-            const jobData = extractPCJobID(content);
-            botStatus.lastJobDetected = jobData;
-            
-            if (jobData.jobIdPC) {
-                console.log('💻 JOB ID (PC):');
-                console.log(`   🔑 ${jobData.jobIdPC}`);
-                console.log('');
-                console.log('📋 CONTEXTO:');
-                console.log(`   🏷️  Servidor: ${jobData.serverName || 'N/A'}`);
-                console.log(`   💰 Money/sec: ${jobData.moneyPerSec || 'N/A'}`);
-                console.log(`   👥 Players: ${jobData.players || 'N/A'}`);
-                console.log(`   ⏰ Detectado: ${new Date().toLocaleString()}`);
-                
-                // URL do jogo para facilitar
-                const gameUrl = `https://www.roblox.com/games/${PLACE_ID}?jobId=${jobData.jobIdPC}`;
-                console.log('');
-                console.log('🎮 LINK DIRETO:');
-                console.log(`   ${gameUrl}`);
-                
-            } else {
-                console.log('⚠️  Job ID (PC) não encontrado na mensagem');
-                console.log('🔍 Conteúdo analisado:');
-                console.log(content);
-            }
-            
-            console.log('════════════════════════════════════');
-            
-        } else {
-            console.log('💬 Mensagem sem Job ID (PC)');
-        }
-        
+
+        // Extrai apenas o Job ID (PC)
+        const jobIdPC = extractPCJobID(content);
+        if (!jobIdPC) return;
+
+        // Atualiza status
+        botStatus.jobsDetected++;
+        botStatus.lastJobDetected = {
+            jobIdPC,
+            timestamp: new Date().toISOString()
+        };
+
+        // Log
+        console.log('🎯 JOB ID (PC) DETECTADO:');
+        console.log(`🔑 ${jobIdPC}`);
+        console.log(`🔗 https://www.roblox.com/games/${PLACE_ID}?jobId=${jobIdPC}`);
         console.log('─'.repeat(50));
-        
     } catch (error) {
         console.error('❌ Erro ao processar mensagem:', error);
     }
 });
 
-// Event: Erro do bot
+// Eventos de controle
 client.on('error', (error) => {
     console.error('❌ Erro do Discord Bot:', error);
     botStatus.online = false;
 });
 
-// Event: Reconexão
 client.on('reconnecting', () => {
     console.log('🔄 Reconectando ao Discord...');
 });
@@ -277,7 +127,6 @@ app.get('/last-job', (req, res) => {
     });
 });
 
-// Rota para testar o bot
 app.post('/test', (req, res) => {
     res.json({
         message: 'Bot está funcionando!',
@@ -287,26 +136,27 @@ app.post('/test', (req, res) => {
     });
 });
 
-// Iniciar servidor HTTP
+// Inicialização do servidor HTTP
 app.listen(PORT, () => {
     console.log(`🌐 Servidor HTTP rodando na porta ${PORT}`);
     console.log(`🔗 URL: https://autojoin-api.onrender.com`);
 });
 
-// Login do bot Discord
-if (BOT_TOKEN) {
-    client.login(BOT_TOKEN)
-        .then(() => {
-            console.log('✅ Bot logado com sucesso!');
-        })
-        .catch(error => {
-            console.error('❌ Erro ao fazer login:', error);
-        });
-} else {
+// Login do bot
+if (!BOT_TOKEN) {
     console.error('❌ Token do bot não encontrado!');
+    process.exit(1);
 }
 
-// Tratamento de encerramento
+client.login(BOT_TOKEN)
+    .then(() => {
+        console.log('✅ Bot logado com sucesso!');
+    })
+    .catch(error => {
+        console.error('❌ Erro ao fazer login:', error);
+    });
+
+// Encerramento seguro
 process.on('SIGTERM', () => {
     console.log('🛑 Encerrando aplicação...');
     client.destroy();
