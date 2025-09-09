@@ -6,35 +6,51 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Porta do Render ou local
 const PORT = process.env.PORT || 3000;
+
+// Banco de dados em memória
+let pets = [];
 
 // Rota de teste (keep-alive)
 app.get("/test", (req, res) => {
   res.json({ ok: true, msg: "Servidor ativo 🚀" });
 });
 
-// Rota principal de pets
+// Listar todos os pets/job_ids
 app.get("/pets", (req, res) => {
-  // Exemplo de dados retornados
-  // Aqui você pode colocar os JobIds capturados de outro lugar
-  const data = [
-    {
-      id: 1,
-      name: "Pet Alpha",
-      job_ids: ["abc123", "def456"]
-    },
-    {
-      id: 2,
-      name: "Pet Beta",
-      job_ids: ["ghi789"]
-    }
-  ];
-
-  res.json(data);
+  res.json(pets);
 });
 
-// Start server
+// Adicionar novos JobIds (sem duplicar)
+app.post("/pets", (req, res) => {
+  const { name, job_ids } = req.body;
+
+  if (!job_ids || !Array.isArray(job_ids)) {
+    return res.status(400).json({ error: "job_ids deve ser um array" });
+  }
+
+  // Filtrar somente os job_ids ainda não cadastrados
+  const novosJobIds = job_ids.filter(jobId => {
+    return !pets.some(pet => pet.job_ids.includes(jobId));
+  });
+
+  if (novosJobIds.length === 0) {
+    return res.json({ ok: false, msg: "Nenhum JobId novo foi adicionado" });
+  }
+
+  const newPet = {
+    id: pets.length + 1,
+    name: name || `Pet #${pets.length + 1}`,
+    job_ids: novosJobIds
+  };
+
+  pets.push(newPet);
+
+  console.log("📥 Novos JobIds recebidos:", novosJobIds);
+  res.json({ ok: true, added: newPet });
+});
+
+// Iniciar servidor
 app.listen(PORT, () => {
   console.log(`✅ API rodando na porta ${PORT}`);
 });
