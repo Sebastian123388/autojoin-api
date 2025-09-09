@@ -14,11 +14,11 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 
-// Rate limiting mais agressivo para velocidade
+// Rate limiting INSANO - sem limites para velocidade máxima
 const limiter = rateLimit({
-    windowMs: 30 * 1000, // 30 segundos
-    max: 200, // máximo 200 requests em 30 segundos
-    message: { error: 'Too many requests, please try again later' }
+    windowMs: 1 * 1000, // 1 segundo
+    max: 2000, // 2000 requests por segundo - FLASH MODE
+    message: { error: 'Calm down Flash!' }
 });
 app.use(limiter);
 
@@ -27,375 +27,233 @@ const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 const DISCORD_API = 'https://discord.com/api/v10';
 
-// Estatísticas simples (sem cache)
+// Variáveis para controle
 let totalRequests = 0;
 let successRequests = 0;
 let lastError = null;
+let processedMessageIds = new Set(); // Track de mensagens já processadas
 
-const MAX_MESSAGES = 50; // Reduzido para velocidade
-const MAX_AGE = 5 * 60 * 1000; // Apenas 5 minutos máximo - DADOS FRESCOS
+const MAX_MESSAGES = 5; // MÍNIMO ABSOLUTO - apenas as 5 mais recentes
+const MAX_AGE = 5 * 1000; // 5 SEGUNDOS - INSTANTÂNEO MESMO
+const MAX_PROCESSED_IDS = 100; // Limite do cache de IDs processadas
 
-// Sistema de saúde do servidor (simplificado)
+// Health simples
 let serverHealth = {
     status: 'starting',
-    uptime: 0,
     discordConnected: false,
-    lastDiscordCheck: 0,
-    errorCount: 0,
-    successCount: 0
+    lastCheck: 0
 };
 
-// PADRÕES OTIMIZADOS PARA DETECÇÃO RÁPIDA DE JOB IDS
-const JOB_ID_PATTERNS = [
-    // Padrões mais específicos primeiro para velocidade
-    /Job\s*ID\s*\((?:Mobile|iOS|PC|Desktop)\)[:\s]*\n([a-zA-Z0-9]{8,12})/gi,
-    /Job\s*ID[:\s]*\(?([a-zA-Z0-9]{8,12})\)?/gi,
-    /JobID[:\s]*([a-zA-Z0-9]{8,12})/gi,
-    /Server\s*ID[:\s]*([a-zA-Z0-9]{8,12})/gi,
-    
-    // Formatação Discord
-    /```([a-zA-Z0-9]{8,12})```/gi,
-    /`([a-zA-Z0-9]{8,12})`/gi,
-    /\*\*([a-zA-Z0-9]{8,12})\*\*/gi,
-    
-    // Embed fields
-    /(?:Job|Server|Game)\s*(?:ID|Code|Key)[:\s]*`?([a-zA-Z0-9]{8,12})`?/gi,
-    
-    // Padrão geral (último para não sobrescrever específicos)
-    /\b([a-zA-Z0-9]{8,12})\b/gi
-];
-
-// Buscar mensagens RÁPIDO com timeout baixo
+// Buscar mensagens INSTANTÂNEO
 async function fetchDiscordMessages() {
     try {
-        console.log(`🚀 Buscando mensagens frescas...`);
-        
         const response = await axios.get(
             `${DISCORD_API}/channels/${CHANNEL_ID}/messages?limit=${MAX_MESSAGES}`,
             {
                 headers: {
                     'Authorization': `Bot ${DISCORD_TOKEN}`,
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'GhostAutoJoin/4.0-NoCache'
+                    'Content-Type': 'application/json'
                 },
-                timeout: 5000 // 5 segundos timeout - RÁPIDO
+                timeout: 1500 // 1.5 segundos timeout - ULTRA RÁPIDO
             }
         );
         
         serverHealth.discordConnected = true;
-        serverHealth.lastDiscordCheck = Date.now();
-        serverHealth.successCount++;
+        serverHealth.lastCheck = Date.now();
         
-        console.log(`⚡ ${response.data.length} mensagens encontradas em tempo real`);
         return response.data;
         
     } catch (error) {
-        console.error(`❌ Erro ao buscar mensagens:`, error.response?.data || error.message);
-        
         serverHealth.discordConnected = false;
-        serverHealth.errorCount++;
         lastError = {
             message: error.message,
-            timestamp: new Date().toISOString(),
-            status: error.response?.status || 'NETWORK_ERROR'
+            timestamp: new Date().toISOString()
         };
-        
         return [];
     }
 }
 
-// PROCESSAMENTO ULTRA RÁPIDO - APENAS DADOS FRESCOS
-function processMessages(messages) {
-    const processedData = [];
+// Processar APENAS 1 JOB ID POR VEZ
+function processFirstJobId(messages) {
     const now = Date.now();
     
-    console.log(`⚡ Processamento rápido de ${messages.length} mensagens...`);
-    
-    messages.forEach((message, index) => {
+    // Processar mensagens da mais nova para mais antiga
+    for (const message of messages) {
         const messageAge = now - new Date(message.timestamp).getTime();
         
-        // Skip mensagens antigas - APENAS FRESCAS
-        if (messageAge > MAX_AGE) {
-            return;
+        // Skip mensagens antigas ou já processadas
+        if (messageAge > MAX_AGE || processedMessageIds.has(message.id)) {
+            continue;
         }
         
-        // Construir conteúdo completo rapidamente
-        let fullContent = message.content || '';
+        // Conteúdo mínimo
+        let content = message.content || '';
         
-        // Processar embeds
-        if (message.embeds && message.embeds.length > 0) {
-            message.embeds.forEach(embed => {
-                if (embed.title) fullContent += embed.title + '\n';
-                if (embed.description) fullContent += embed.description + '\n';
-                if (embed.fields) {
-                    embed.fields.forEach(field => {
-                        fullContent += `${field.name}: ${field.value}\n`;
-                    });
-                }
-            });
+        // Adicionar título do embed se existir
+        if (message.embeds?.[0]?.title) {
+            content += ' ' + message.embeds[0].title;
         }
         
-        // Busca rápida de Job IDs
-        const foundJobIds = new Set();
-        let platform = 'Unknown';
+        // Buscar primeiro Job ID válido
+        const jobIdMatch = content.match(/([a-zA-Z0-9]{8,12})/);
         
-        for (const pattern of JOB_ID_PATTERNS) {
-            const matches = [...fullContent.matchAll(pattern)];
+        if (jobIdMatch) {
+            const jobId = jobIdMatch[1];
             
-            for (const match of matches) {
-                const potentialJobId = match[1];
+            // Filtro básico de falsos positivos
+            const lower = jobId.toLowerCase();
+            if (!lower.includes('javascript') && 
+                !lower.includes('undefined') && 
+                !lower.includes('function') &&
+                !/^\d+$/.test(jobId)) { // Skip números puros
                 
-                if (potentialJobId && /^[a-zA-Z0-9]{8,12}$/.test(potentialJobId)) {
-                    // Filtro rápido de falsos positivos
-                    const lowerJobId = potentialJobId.toLowerCase();
-                    if (!lowerJobId.includes('javascript') && 
-                        !lowerJobId.includes('undefined') && 
-                        !lowerJobId.includes('function')) {
-                        
-                        foundJobIds.add(potentialJobId);
-                        
-                        // Detectar plataforma rapidamente
-                        if (/mobile|android|ios/i.test(fullContent)) {
-                            platform = 'Mobile';
-                        } else if (/pc|desktop/i.test(fullContent)) {
-                            platform = 'PC';
-                        }
-                        
-                        // Sair no primeiro match para velocidade
-                        if (foundJobIds.size >= 3) break;
-                    }
+                // Marcar mensagem como processada
+                processedMessageIds.add(message.id);
+                
+                // Limpar cache se muito grande
+                if (processedMessageIds.size > MAX_PROCESSED_IDS) {
+                    const idsArray = Array.from(processedMessageIds);
+                    processedMessageIds = new Set(idsArray.slice(-50)); // Manter apenas os 50 mais recentes
                 }
+                
+                console.log(`⚡ NOVO JOB ID: ${jobId} (${Math.floor(messageAge/1000)}s atrás)`);
+                
+                return {
+                    job_id: jobId,
+                    author: message.author.username,
+                    seconds_ago: Math.floor(messageAge / 1000),
+                    message_id: message.id
+                };
             }
-            
-            // Sair se já encontrou Job IDs
-            if (foundJobIds.size > 0) break;
         }
-        
-        if (foundJobIds.size > 0) {
-            const processedEntry = {
-                id: message.id,
-                timestamp: message.timestamp,
-                processed_at: new Date().toISOString(),
-                age_seconds: Math.floor(messageAge / 1000),
-                job_ids: Array.from(foundJobIds),
-                platform: platform,
-                author: message.author.username,
-                author_id: message.author.id,
-                content_preview: fullContent.substring(0, 100),
-                freshness_score: Math.max(0, 100 - (messageAge / 60000)),
-                detection_method: 'real-time'
-            };
-            
-            processedData.push(processedEntry);
-            console.log(`✅ ${foundJobIds.size} Job ID(s): [${Array.from(foundJobIds).join(', ')}] - ${Math.floor(messageAge/1000)}s atrás`);
-        }
-    });
+    }
     
-    // Ordenar apenas por freshness (mais fresco primeiro)
-    const sorted = processedData.sort((a, b) => b.freshness_score - a.freshness_score);
-    
-    console.log(`🚀 ${sorted.length} entradas FRESCAS processadas em tempo real`);
-    return sorted;
+    return null; // Nenhum Job ID novo encontrado
 }
 
-// ENDPOINT PRINCIPAL - SEMPRE DADOS FRESCOS
+// ENDPOINT PRINCIPAL - RETORNA APENAS 1 JOB ID NOVO POR VEZ
 app.get('/pets', async (req, res) => {
     totalRequests++;
     const startTime = Date.now();
     
-    // Headers para dados em tempo real
+    // Headers para velocidade máxima
     res.set({
         'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'X-Timestamp': startTime,
-        'X-Fresh-Data': 'true',
-        'X-Server-Health': serverHealth.status
+        'X-Fresh-Data': 'instant',
+        'X-Mode': 'single-job'
     });
     
     try {
-        console.log('⚡ Buscando dados FRESCOS em tempo real...');
-        
         const messages = await fetchDiscordMessages();
         
         if (messages.length === 0) {
-            return res.status(503).json({
-                error: 'Discord API unavailable',
-                timestamp: startTime,
-                last_error: lastError,
-                processing_time: Date.now() - startTime
+            return res.json({
+                job_id: null,
+                message: 'Discord unavailable',
+                ms: Date.now() - startTime
             });
         }
         
-        const processedData = processMessages(messages);
+        const newJobData = processFirstJobId(messages);
         const processingTime = Date.now() - startTime;
         
         successRequests++;
-        serverHealth.status = 'healthy';
+        serverHealth.status = 'instant';
         
-        console.log(`🚀 ${processedData.length} entradas FRESCAS retornadas em ${processingTime}ms`);
-        
-        res.json({
-            data: processedData,
-            total_entries: processedData.length,
-            freshest_age_seconds: processedData[0] ? processedData[0].age_seconds : 0,
-            timestamp: startTime,
-            processing_time: processingTime,
-            freshness: 'real-time',
-            max_age_allowed: MAX_AGE / 1000
-        });
+        if (newJobData) {
+            console.log(`🚀 Retornando Job ID em ${processingTime}ms`);
+            res.json({
+                ...newJobData,
+                ms: processingTime,
+                fresh: true
+            });
+        } else {
+            // Nenhum Job ID novo
+            res.json({
+                job_id: null,
+                message: 'No new jobs',
+                ms: processingTime,
+                fresh: true
+            });
+        }
         
     } catch (error) {
-        console.error('❌ Erro no endpoint:', error);
-        
-        res.status(500).json({
-            error: 'Internal server error',
-            timestamp: startTime,
-            processing_time: Date.now() - startTime,
-            error_details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        console.error('❌ Erro:', error.message);
+        res.json({
+            job_id: null,
+            error: 'Server error',
+            ms: Date.now() - startTime
         });
     }
 });
 
-// Health check simplificado
+// Health check ultra simples
 app.get('/health', (req, res) => {
-    const uptime = process.uptime();
-    const memUsage = process.memoryUsage();
-    
-    serverHealth.uptime = uptime;
-    
-    const healthStatus = {
+    res.json({
         status: serverHealth.status,
-        uptime: `${Math.floor(uptime / 60)}m ${Math.floor(uptime % 60)}s`,
-        memory: {
-            used: `${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`,
-            total: `${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`
-        },
-        discord: {
-            connected: serverHealth.discordConnected,
-            last_check: serverHealth.lastDiscordCheck,
-            success_rate: `${Math.round((serverHealth.successCount / (serverHealth.successCount + serverHealth.errorCount)) * 100) || 0}%`
-        },
-        mode: 'real-time',
-        max_age_seconds: MAX_AGE / 1000,
-        requests: {
-            total: totalRequests,
-            success: successRequests,
-            success_rate: `${Math.round((successRequests / totalRequests) * 100) || 0}%`
-        },
-        last_error: lastError
-    };
-    
-    res.json(healthStatus);
+        discord: serverHealth.discordConnected,
+        processed_count: processedMessageIds.size,
+        uptime: `${Math.floor(process.uptime())}s`,
+        mode: 'single-job-instant'
+    });
 });
 
-// Debug em tempo real
-app.get('/debug', async (req, res) => {
-    try {
-        const startTime = Date.now();
-        const messages = await fetchDiscordMessages();
-        
-        const detailedAnalysis = messages.slice(0, 3).map(msg => {
-            const messageAge = Date.now() - new Date(msg.timestamp).getTime();
-            
-            let fullContent = msg.content || '';
-            if (msg.embeds) {
-                msg.embeds.forEach(embed => {
-                    if (embed.title) fullContent += '\n' + embed.title;
-                    if (embed.description) fullContent += '\n' + embed.description;
-                });
-            }
-            
-            return {
-                message_id: msg.id,
-                author: msg.author.username,
-                timestamp: msg.timestamp,
-                age_seconds: Math.floor(messageAge / 1000),
-                is_fresh: messageAge <= MAX_AGE,
-                content_length: fullContent.length,
-                content_preview: fullContent.substring(0, 200)
-            };
-        });
-        
-        res.json({
-            server_info: {
-                version: 'Ghost AutoJoin v4.0 - Real Time',
-                mode: 'no-cache',
-                max_age_seconds: MAX_AGE / 1000,
-                max_messages: MAX_MESSAGES,
-                patterns_count: JOB_ID_PATTERNS.length
-            },
-            processing_time: Date.now() - startTime,
-            total_messages: messages.length,
-            fresh_messages: messages.filter(m => (Date.now() - new Date(m.timestamp).getTime()) <= MAX_AGE).length,
-            detailed_analysis: detailedAnalysis,
-            server_health: serverHealth
-        });
-        
-    } catch (error) {
-        res.status(500).json({ 
-            error: error.message,
-            mode: 'real-time-debug'
-        });
-    }
-});
-
-// Keep-alive simplificado
-app.get('/keepalive', (req, res) => {
+// Test endpoint para keep-alive
+app.get('/test', (req, res) => {
     res.json({
         status: 'alive',
-        mode: 'real-time',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
+        timestamp: Date.now(),
+        mode: 'instant'
     });
 });
 
-// Middleware de erro
-app.use((error, req, res, next) => {
-    console.error('❌ Erro não tratado:', error);
-    res.status(500).json({
-        error: 'Internal server error',
-        timestamp: new Date().toISOString(),
-        mode: 'real-time'
-    });
-});
+// Limpar cache de IDs processadas periodicamente
+setInterval(() => {
+    if (processedMessageIds.size > MAX_PROCESSED_IDS) {
+        const idsArray = Array.from(processedMessageIds);
+        processedMessageIds = new Set(idsArray.slice(-30)); // Manter apenas os 30 mais recentes
+        console.log('🧹 Cache de IDs processadas limpo');
+    }
+}, 5 * 60 * 1000); // A cada 5 minutos
 
 // 404 handler
 app.use((req, res) => {
-    res.status(404).json({
+    res.json({
         error: 'Endpoint not found',
-        available_endpoints: ['/pets', '/health', '/debug', '/keepalive']
+        endpoints: ['/pets', '/health', '/test']
     });
 });
 
-// Auto keep-alive otimizado
+// Keep-alive para Render
 if (process.env.RENDER_SERVICE_NAME) {
     setInterval(async () => {
         try {
-            await axios.get(`${process.env.RENDER_EXTERNAL_URL || 'http://localhost:3000'}/keepalive`);
-            console.log('🏓 Keep-alive ping');
+            await axios.get(`${process.env.RENDER_EXTERNAL_URL || 'http://localhost:3000'}/test`);
+            console.log('🏓 Keep-alive');
         } catch (error) {
             console.log('⚠️ Keep-alive falhou');
         }
-    }, 5 * 60 * 1000); // A cada 5 minutos
+    }, 3 * 60 * 1000); // A cada 3 minutos
 }
 
 // Inicialização
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`🚀 Ghost AutoJoin Backend v5.0 - ULTRA FRESH - Porta ${PORT}`);
-    console.log(`⚡ MODO: DADOS NA HORA - MÁXIMO ${MAX_AGE/1000} SEGUNDOS`);
-    console.log(`🎯 Endpoint principal: GET /pets`);
-    
-    console.log(`⚡ Configurações ULTRA RÁPIDAS:`);
-    console.log(`   • Idade máxima: ${MAX_AGE/1000}s (NA HORA MESMO!)`);
-    console.log(`   • Mensagens: ${MAX_MESSAGES} (mínimo necessário)`);
-    console.log(`   • Timeout: 3s (ultra rápido)`);
-    console.log(`   • Rate limit: 500 req/10s (sem limites)`);
+    console.log(`🚀 Ghost AutoJoin v7.0 - SINGLE JOB MODE - Porta ${PORT}`);
+    console.log(`⚡ MODO: 1 JOB ID POR VEZ - ${MAX_AGE/1000}s máximo`);
+    console.log(`🎯 Endpoint: GET /pets (retorna apenas 1 job novo)`);
+    console.log(`⚡ Configurações:`);
+    console.log(`   • ${MAX_AGE/1000}s idade máxima`);
+    console.log(`   • ${MAX_MESSAGES} mensagens verificadas`);
+    console.log(`   • 1.5s timeout`);
+    console.log(`   • 2000 req/s rate limit`);
+    console.log(`   • Track de ${MAX_PROCESSED_IDS} IDs processadas`);
     
     if (!DISCORD_TOKEN || !CHANNEL_ID) {
-        console.warn('⚠️  CONFIGURE: DISCORD_TOKEN e CHANNEL_ID!');
-        serverHealth.status = 'configuration_error';
+        console.warn('⚠️ CONFIGURE TOKENS!');
+        serverHealth.status = 'config_error';
     } else {
-        console.log('✅ Sistema ULTRA FRESH operacional - DADOS NA HORA!');
-        serverHealth.status = 'ultra-healthy';
+        console.log('✅ SISTEMA SINGLE JOB OPERACIONAL!');
+        serverHealth.status = 'instant';
     }
 });
