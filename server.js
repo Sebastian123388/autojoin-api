@@ -196,13 +196,27 @@ client.on('messageCreate', message => {
     }
 });
 
-// Eventos mínimos
+// Eventos mínimos com DEBUG
 client.on('ready', () => {
     console.log(`✅ ${client.user.tag} - ZERO CACHE MODE`);
     console.log(`📡 Monitorando canal: ${DISCORD_CHANNEL_ID}`);
     console.log(`🏷️  Place ID: ${PLACE_ID}`);
+    console.log(`🔍 DEBUG MODE ATIVO - Logs intensos habilitados`);
+    console.log(`🎯 Procurando bots com: brainrot, notify, mirror no username`);
 });
-client.on('error', () => {});
+
+client.on('error', (error) => {
+    console.error('❌ Discord client error:', error);
+});
+
+// Debug adicional para conexão
+client.on('disconnect', () => {
+    console.log('⚠️  Bot desconectado do Discord');
+});
+
+client.on('reconnecting', () => {
+    console.log('🔄 Bot reconectando ao Discord...');
+});
 
 // ENDPOINT ZERO CACHE - ULTRA VELOCIDADE
 app.get('/pets/fresh', (req, res) => {
