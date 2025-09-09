@@ -105,14 +105,43 @@ client.once('ready', () => {
 // Event: Monitor de mensagens
 client.on('messageCreate', async (message) => {
     try {
-        // Filtros básicos
-        if (message.author.bot) return;
-        if (message.channel.id !== DISCORD_CHANNEL_ID) return;
+        // LOG DE DEBUG: Toda mensagem que chega
+        console.log(`🔍 [DEBUG] Mensagem recebida:`);
+        console.log(`   📍 Canal: ${message.channel.id} (esperado: ${DISCORD_CHANNEL_ID})`);
+        console.log(`   👤 Autor: ${message.author.username} (bot: ${message.author.bot})`);
+        console.log(`   📝 Conteúdo: ${message.content.substring(0, 100)}...`);
+        console.log(`   📎 Embeds: ${message.embeds.length}`);
         
-        console.log(`📨 Nova mensagem de: ${message.author.username}`);
+        // Filtro: Ignora bots
+        if (message.author.bot) {
+            console.log(`❌ Ignorando bot: ${message.author.username}`);
+            return;
+        }
+        
+        // Filtro: Verifica canal
+        if (message.channel.id !== DISCORD_CHANNEL_ID) {
+            console.log(`❌ Canal diferente. Recebido: ${message.channel.id}, Esperado: ${DISCORD_CHANNEL_ID}`);
+            return;
+        }
+        
+        console.log(`✅ Mensagem válida de: ${message.author.username}`);
+        console.log(`📄 Conteúdo completo: ${message.content}`);
+        
+        // Verifica se tem conteúdo em embeds
+        if (message.embeds.length > 0) {
+            console.log(`📎 Embed detectado:`);
+            message.embeds.forEach((embed, index) => {
+                console.log(`   Embed ${index + 1}:`);
+                console.log(`   📝 Title: ${embed.title || 'N/A'}`);
+                console.log(`   📄 Description: ${embed.description?.substring(0, 200) || 'N/A'}...`);
+            });
+        }
         
         // Verifica se tem Job ID do PC
-        if (hasPCJobID(message)) {
+        const hasPC = hasPCJobID(message);
+        console.log(`🔍 Tem Job ID (PC)? ${hasPC ? '✅ SIM' : '❌ NÃO'}`);
+        
+        if (hasPC) {
             botStatus.jobsDetected++;
             
             console.log('🎯 ══════ JOB ID PC DETECTADO ══════');
@@ -122,6 +151,7 @@ client.on('messageCreate', async (message) => {
             if (message.embeds.length > 0) {
                 const embed = message.embeds[0];
                 content = embed.description || embed.title || content;
+                console.log(`📄 Usando conteúdo do embed: ${content.substring(0, 100)}...`);
             }
             
             // Extrai Job ID do PC
@@ -146,14 +176,17 @@ client.on('messageCreate', async (message) => {
                 
             } else {
                 console.log('⚠️  Job ID (PC) não encontrado na mensagem');
+                console.log('🔍 Conteúdo analisado:');
+                console.log(content);
             }
             
             console.log('════════════════════════════════════');
             
         } else {
-            // Log mais discreto para outras mensagens
             console.log('💬 Mensagem sem Job ID (PC)');
         }
+        
+        console.log('─'.repeat(50));
         
     } catch (error) {
         console.error('❌ Erro ao processar mensagem:', error);
