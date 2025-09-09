@@ -112,10 +112,14 @@ client.on('messageCreate', async (message) => {
         console.log(`   📝 Conteúdo: ${message.content.substring(0, 100)}...`);
         console.log(`   📎 Embeds: ${message.embeds.length}`);
         
-        // Filtro: Ignora bots
-        if (message.author.bot) {
+        // Filtro: Ignora bots (EXCETO Mirror Bot do Chilli Hub)
+        if (message.author.bot && !message.author.username.includes('Mirror Bot')) {
             console.log(`❌ Ignorando bot: ${message.author.username}`);
             return;
+        }
+        
+        if (message.author.bot) {
+            console.log(`🤖 Processando Mirror Bot: ${message.author.username}`);
         }
         
         // Filtro: Verifica canal
