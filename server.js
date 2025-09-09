@@ -5,345 +5,317 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CONFIGURAÇÕES DE ULTRA VELOCIDADE
+// ZERO CACHE CONFIG - DADOS ULTRA FRESCOS EM TEMPO REAL
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST'],
     allowedHeaders: ['Content-Type']
 }));
 app.use(express.json({ limit: '1mb' }));
-
-// Desabilita logs desnecessários do Express
 app.set('x-powered-by', false);
 
-// Cache ultra rápido usando Map nativo (mais rápido que Object)
-const jobCache = new Map();
-const freshJobIds = new Map(); // Cache separado para JobIds ultra-frescos
-const MAX_CACHE_SIZE = 500; // Reduzido para maior velocidade
-const CACHE_DURATION = 15 * 60 * 1000; // 15 minutos (reduzido)
-const ULTRA_FRESH_DURATION = 30 * 1000; // 30 segundos para ultra-fresco
+// ZERO CACHE SYSTEM - Só dados em tempo real
+const liveJobIds = []; // Array simples para JobIds ativos
+const MAX_LIVE_IDS = 100; // Buffer pequeno para ultra velocidade
+const ULTRA_FRESH_WINDOW = 15000; // 15 segundos = ULTRA FRESCO
 
-// Bot Discord com configuração mínima para máxima velocidade
+// Bot Discord configurado para velocidade máxima
 const client = new Client({
-    intents: [
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-    ],
-    partials: [], // Removido partials desnecessários
-    presence: { status: 'invisible' }, // Invisível para economizar recursos
-    ws: {
-        compress: false, // Desabilita compressão para velocidade
-        large_threshold: 50 // Reduzido
-    }
+    intents: [GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+    partials: [],
+    presence: { status: 'invisible' },
+    ws: { compress: false, large_threshold: 50 }
 });
 
-// Stats ultra-minimalistas
-let stats = {
-    total: 0,
-    fresh: 0,
+// Stats em tempo real (zero persistência)
+let liveStats = {
     processed: 0,
-    startTime: Date.now(),
-    lastJobId: null
+    fresh: 0,
+    lastJobId: null,
+    lastUpdate: 0,
+    responseCount: 0
 };
 
-// Regex pré-compilada para máxima velocidade
-const JOB_ID_REGEX = /[a-zA-Z0-9\/\+]{45,70}/g;
-const FIELD_REGEX = /(?:server|job|id).*?[:=]\s*([a-zA-Z0-9\/\+]{45,70})/gi;
+// Regex ultra otimizada (pré-compilada)
+const ULTRA_FAST_REGEX = /[a-zA-Z0-9\/\+]{45,70}/g;
+const FIELD_EXTRACT_REGEX = /(?:server|job|id).*?[:=]\s*([a-zA-Z0-9\/\+]{45,70})/gi;
 
-// Função ultra-rápida de extração de JobIds
-function fastExtractJobIds(text) {
+// Extração ZERO CACHE - Máxima velocidade
+function instantExtractJobIds(text) {
     if (!text) return [];
     
     const ids = new Set();
     let match;
     
-    // Reset regex
-    JOB_ID_REGEX.lastIndex = 0;
-    FIELD_REGEX.lastIndex = 0;
+    // Reset regex para reutilização
+    ULTRA_FAST_REGEX.lastIndex = 0;
+    FIELD_EXTRACT_REGEX.lastIndex = 0;
     
-    // Extração principal
-    while ((match = JOB_ID_REGEX.exec(text)) !== null) {
-        const id = match[0];
-        if (id.length >= 45 && id.length <= 70) {
-            ids.add(id);
-        }
+    // Extração direta
+    while ((match = ULTRA_FAST_REGEX.exec(text)) !== null) {
+        if (match[0].length >= 45) ids.add(match[0]);
     }
     
     // Extração de campos específicos
-    while ((match = FIELD_REGEX.exec(text)) !== null) {
-        const id = match[1];
-        if (id && id.length >= 45 && id.length <= 70) {
-            ids.add(id);
-        }
+    while ((match = FIELD_EXTRACT_REGEX.exec(text)) !== null) {
+        if (match[1] && match[1].length >= 45) ids.add(match[1]);
     }
     
-    return Array.from(ids);
+    return [...ids];
 }
 
-// Processamento ultra-rápido de embeds
-function fastProcessEmbeds(embeds) {
-    let text = '';
-    let jobIds = [];
+// Processamento INSTANTÂNEO de embeds
+function instantProcessEmbeds(embeds) {
+    let allText = '';
+    let directIds = [];
     
+    // Processamento ultra direto
     for (const embed of embeds) {
-        // Concatena apenas campos essenciais
-        if (embed.description) text += embed.description + ' ';
+        if (embed.description) allText += embed.description + '\n';
         if (embed.fields) {
             for (const field of embed.fields) {
-                text += field.value + ' ';
-                // Extração direta dos campos mais importantes
+                allText += field.value + '\n';
+                // Extração direta dos campos importantes
                 if (field.name.toLowerCase().includes('server') || 
                     field.name.toLowerCase().includes('job')) {
-                    const ids = fastExtractJobIds(field.value);
-                    jobIds.push(...ids);
+                    directIds.push(...instantExtractJobIds(field.value));
                 }
             }
         }
-        if (embed.title) text += embed.title + ' ';
     }
     
-    // Extrai JobIds do texto concatenado
-    const textIds = fastExtractJobIds(text);
-    jobIds.push(...textIds);
-    
-    // Remove duplicatas usando Set (mais rápido)
-    return [...new Set(jobIds)];
+    // Combina extração direta + texto completo
+    const textIds = instantExtractJobIds(allText);
+    return [...new Set([...directIds, ...textIds])];
 }
 
-// Limpeza ultra-rápida do cache
-function ultraCleanCache() {
+// ZERO CACHE - Limpa dados antigos instantaneamente
+function instantClean() {
     const now = Date.now();
-    
-    // Limpa cache principal
-    for (const [key, data] of jobCache) {
-        if (now - data.timestamp > CACHE_DURATION) {
-            jobCache.delete(key);
+    for (let i = liveJobIds.length - 1; i >= 0; i--) {
+        if (now - liveJobIds[i].timestamp > ULTRA_FRESH_WINDOW) {
+            liveJobIds.splice(i, 1);
         }
     }
     
-    // Limpa cache de ultra-frescos
-    for (const [key, data] of freshJobIds) {
-        if (now - data.timestamp > ULTRA_FRESH_DURATION) {
-            freshJobIds.delete(key);
-        }
-    }
-    
-    // Controle de tamanho
-    if (jobCache.size > MAX_CACHE_SIZE) {
-        const oldest = [...jobCache.entries()]
-            .sort((a, b) => a[1].timestamp - b[1].timestamp)
-            .slice(0, jobCache.size - MAX_CACHE_SIZE);
-        
-        for (const [key] of oldest) {
-            jobCache.delete(key);
-        }
+    // Limita tamanho para velocidade máxima
+    if (liveJobIds.length > MAX_LIVE_IDS) {
+        liveJobIds.splice(0, liveJobIds.length - MAX_LIVE_IDS);
     }
 }
 
-// Event listener ultra-otimizado
+// Event listener ZERO CACHE - Processamento instantâneo
 client.on('messageCreate', message => {
-    // Filtros rápidos primeiro
+    // Filtros ultra rápidos
     if (!message.author.bot) return;
     
     const username = message.author.username.toLowerCase();
-    if (!username.includes('brainrot') && 
-        !username.includes('notify') && 
-        !username.includes('mirror')) return;
+    const isBrainrot = username.includes('brainrot') || username.includes('notify') || username.includes('mirror');
+    if (!isBrainrot) return;
     
-    // Processamento assíncrono para não bloquear
-    setImmediate(() => {
-        try {
-            let allJobIds = [];
-            
-            // Prioriza embeds (mais rápido)
-            if (message.embeds?.length > 0) {
-                allJobIds = fastProcessEmbeds(message.embeds);
-            } else if (message.content) {
-                allJobIds = fastExtractJobIds(message.content);
-            }
-            
-            if (allJobIds.length === 0) return;
-            
-            const now = Date.now();
-            let newCount = 0;
-            
-            // Adiciona aos caches
-            for (const jobId of allJobIds) {
-                if (!jobCache.has(jobId)) {
-                    const data = {
-                        timestamp: now,
-                        source: username
-                    };
-                    
-                    jobCache.set(jobId, data);
-                    freshJobIds.set(jobId, data); // Também no cache de frescos
-                    newCount++;
-                }
-            }
-            
-            if (newCount > 0) {
-                stats.total = jobCache.size;
-                stats.fresh += newCount;
-                stats.processed++;
-                stats.lastJobId = allJobIds[0];
-                
-                // Reação assíncrona sem await (mais rápido)
-                message.react('🎯').catch(() => {});
-            }
-            
-        } catch (error) {
-            // Log mínimo para não afetar performance
-            console.error('E:', error.message);
+    // Processamento INSTANTÂNEO (não assíncrono)
+    try {
+        let jobIds = [];
+        
+        // Prioriza embeds
+        if (message.embeds?.length > 0) {
+            jobIds = instantProcessEmbeds(message.embeds);
+        } else if (message.content) {
+            jobIds = instantExtractJobIds(message.content);
         }
-    });
+        
+        if (jobIds.length === 0) return;
+        
+        const now = Date.now();
+        let newCount = 0;
+        
+        // Adiciona INSTANTANEAMENTE ao buffer ativo
+        for (const jobId of jobIds) {
+            // Verifica se já existe (busca ultra rápida)
+            const exists = liveJobIds.some(item => item.jobId === jobId);
+            if (!exists) {
+                liveJobIds.push({
+                    jobId,
+                    timestamp: now,
+                    source: username,
+                    fresh: true
+                });
+                newCount++;
+            }
+        }
+        
+        if (newCount > 0) {
+            liveStats.processed++;
+            liveStats.fresh += newCount;
+            liveStats.lastJobId = jobIds[0];
+            liveStats.lastUpdate = now;
+            
+            // Limpeza instantânea após adição
+            instantClean();
+            
+            console.log(`⚡ INSTANT: ${newCount} fresh JobIds | Total: ${liveJobIds.length}`);
+            
+            // Reação sem await
+            message.react('🎯').catch(() => {});
+        }
+        
+    } catch (error) {
+        console.error('E:', error.message);
+    }
 });
 
-// Eventos mínimos do bot
-client.on('ready', () => console.log(`✅ ${client.user.tag} ONLINE`));
-client.on('error', () => {}); // Silencia erros não críticos
+// Eventos mínimos
+client.on('ready', () => console.log(`✅ ${client.user.tag} - ZERO CACHE MODE`));
+client.on('error', () => {});
 
-// ENDPOINT ULTRA-RÁPIDO PRINCIPAL
+// ENDPOINT ZERO CACHE - ULTRA VELOCIDADE
 app.get('/pets/fresh', (req, res) => {
-    // Headers para máxima velocidade
+    // Headers para ZERO cache
     res.set({
-        'Cache-Control': 'no-cache, no-store, max-age=0',
+        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
     });
     
-    try {
-        const now = Date.now();
-        
-        // Usa o cache de ultra-frescos diretamente
-        const freshData = [];
-        for (const [jobId, data] of freshJobIds) {
-            if (now - data.timestamp < ULTRA_FRESH_DURATION) {
-                freshData.push({
-                    jobId,
-                    timestamp: data.timestamp,
-                    source: data.source
-                });
-            }
-        }
-        
-        // Ordena por timestamp (mais recente primeiro)
-        freshData.sort((a, b) => b.timestamp - a.timestamp);
-        
-        res.json({
-            success: true,
-            count: freshData.length,
-            jobIds: freshData,
-            timestamp: now
-        });
-        
-    } catch (error) {
-        res.status(500).json({ error: 'Internal error' });
-    }
-});
-
-// Status ultra-simples
-app.get('/bot/status', (req, res) => {
+    const now = Date.now();
+    liveStats.responseCount++;
+    
+    // Limpeza instantânea antes da resposta
+    instantClean();
+    
+    // Filtra apenas JobIds ULTRA FRESCOS (últimos 15 segundos)
+    const ultraFreshJobs = liveJobIds
+        .filter(job => now - job.timestamp < ULTRA_FRESH_WINDOW)
+        .map(job => ({
+            jobId: job.jobId,
+            timestamp: job.timestamp,
+            source: job.source,
+            age: Math.floor((now - job.timestamp) / 1000)
+        }))
+        .sort((a, b) => b.timestamp - a.timestamp); // Mais recente primeiro
+    
+    console.log(`📡 INSTANT RESPONSE: ${ultraFreshJobs.length} ultra fresh jobs`);
+    
     res.json({
-        ...stats,
-        cacheSize: jobCache.size,
-        freshSize: freshJobIds.size,
-        uptime: Date.now() - stats.startTime,
-        connected: client.isReady()
+        success: true,
+        count: ultraFreshJobs.length,
+        jobIds: ultraFreshJobs,
+        timestamp: now,
+        mode: 'ZERO_CACHE',
+        freshWindow: ULTRA_FRESH_WINDOW
     });
 });
 
-// Teste rápido
+// Status em tempo real
+app.get('/bot/status', (req, res) => {
+    const now = Date.now();
+    instantClean(); // Limpeza instantânea
+    
+    res.json({
+        ...liveStats,
+        liveJobIds: liveJobIds.length,
+        ultraFreshCount: liveJobIds.filter(job => now - job.timestamp < ULTRA_FRESH_WINDOW).length,
+        connected: client.isReady(),
+        mode: 'ZERO_CACHE',
+        freshWindow: ULTRA_FRESH_WINDOW,
+        maxBuffer: MAX_LIVE_IDS
+    });
+});
+
+// Teste instantâneo
 app.post('/bot/test', (req, res) => {
     const { text } = req.body;
-    const jobIds = fastExtractJobIds(text || '');
+    const jobIds = instantExtractJobIds(text || '');
     
     const now = Date.now();
+    let added = 0;
+    
     for (const jobId of jobIds) {
-        jobCache.set(jobId, { timestamp: now, source: 'TEST' });
-        freshJobIds.set(jobId, { timestamp: now, source: 'TEST' });
+        const exists = liveJobIds.some(item => item.jobId === jobId);
+        if (!exists) {
+            liveJobIds.push({
+                jobId,
+                timestamp: now,
+                source: 'TEST',
+                fresh: true
+            });
+            added++;
+        }
     }
+    
+    instantClean();
     
     res.json({
         success: true,
         found: jobIds.length,
-        jobIds
+        added: added,
+        jobIds,
+        total: liveJobIds.length
     });
 });
 
-// Root endpoint mínimo
+// Root
 app.get('/', (req, res) => {
     res.json({
-        status: 'ULTRA FAST',
-        uptime: Date.now() - stats.startTime,
-        cache: jobCache.size,
-        fresh: freshJobIds.size
+        status: 'ZERO CACHE MODE',
+        mode: 'ULTRA_FRESH_REAL_TIME',
+        freshWindow: ULTRA_FRESH_WINDOW + 'ms',
+        liveJobs: liveJobIds.length,
+        processed: liveStats.processed,
+        responses: liveStats.responseCount
     });
 });
 
-// Limpeza automática ultra-eficiente (apenas quando necessário)
-let lastClean = Date.now();
+// Limpeza automática ULTRA FREQUENTE (apenas quando necessário)
 setInterval(() => {
-    // Limpa apenas se passou tempo suficiente OU cache está cheio
-    if (Date.now() - lastClean > 30000 || jobCache.size > MAX_CACHE_SIZE) {
-        ultraCleanCache();
-        lastClean = Date.now();
-    }
-}, 5000); // Verifica a cada 5 segundos
-
-// Keep-alive ultra-simples
-const keepAliveUrl = `https://autojoin-api.onrender.com/bot/status`;
-let keepAliveActive = true;
-
-function ultraKeepAlive() {
-    if (!keepAliveActive) return;
-    
-    require('https').get(keepAliveUrl, (res) => {
-        // Só loga se houver erro
-        if (res.statusCode !== 200) {
-            console.log(`Keep-alive: ${res.statusCode}`);
+    // Só limpa se há dados para limpar
+    if (liveJobIds.length > 0) {
+        const before = liveJobIds.length;
+        instantClean();
+        const after = liveJobIds.length;
+        if (before !== after) {
+            console.log(`🧹 Auto clean: ${before} → ${after} jobs`);
         }
-    }).on('error', () => {
-        // Silencia erros de keep-alive
-    });
-    
-    setTimeout(ultraKeepAlive, 14 * 60 * 1000); // 14 minutos
+    }
+}, 3000); // A cada 3 segundos
+
+// Keep-alive minimalista
+const keepAliveUrl = `https://autojoin-api.onrender.com`;
+function ultraKeepAlive() {
+    require('https').get(keepAliveUrl, () => {}).on('error', () => {});
+    setTimeout(ultraKeepAlive, 12 * 60 * 1000); // 12 minutos
 }
 
-// Inicialização ultra-rápida
-async function ultraStart() {
+// Inicialização ZERO CACHE
+async function zeroStart() {
     try {
-        // Bot Discord
         if (process.env.DISCORD_BOT_TOKEN) {
             await client.login(process.env.DISCORD_BOT_TOKEN);
-            console.log('🤖 Bot ONLINE');
+            console.log('🤖 Bot ONLINE - ZERO CACHE MODE');
         }
         
-        // Servidor
         app.listen(PORT, () => {
-            console.log(`🚀 ULTRA FAST SERVER: ${PORT}`);
-            console.log(`⚡ Fresh: /pets/fresh`);
-            console.log(`📊 Status: /bot/status`);
+            console.log(`🚀 ZERO CACHE SERVER: ${PORT}`);
+            console.log(`⚡ Mode: REAL TIME - NO CACHE`);
+            console.log(`🔥 Fresh Window: ${ULTRA_FRESH_WINDOW}ms`);
+            console.log(`📡 Fresh Endpoint: /pets/fresh`);
+            console.log(`💨 Max Buffer: ${MAX_LIVE_IDS} JobIds`);
             
             // Inicia keep-alive
             ultraKeepAlive();
         });
         
     } catch (error) {
-        console.error('❌ Start error:', error.message);
+        console.error('❌ Zero start error:', error);
         process.exit(1);
     }
 }
 
-// Cleanup rápido
-process.on('SIGTERM', () => {
-    keepAliveActive = false;
-    process.exit(0);
-});
+// Cleanup
+process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT', () => process.exit(0));
 
-process.on('SIGINT', () => {
-    keepAliveActive = false;
-    process.exit(0);
-});
-
-// Start
-ultraStart();
+// 🚀 START ZERO CACHE MODE
+zeroStart();
