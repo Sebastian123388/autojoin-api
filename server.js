@@ -5,6 +5,31 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Variáveis de ambiente obrigatórias
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
+const PLACE_ID = process.env.PLACE_ID;
+
+// Validação das variáveis obrigatórias
+if (!DISCORD_BOT_TOKEN) {
+    console.error('❌ DISCORD_BOT_TOKEN não encontrado nas variáveis de ambiente');
+    process.exit(1);
+}
+
+if (!DISCORD_CHANNEL_ID) {
+    console.error('❌ DISCORD_CHANNEL_ID não encontrado nas variáveis de ambiente');
+    process.exit(1);
+}
+
+if (!PLACE_ID) {
+    console.error('❌ PLACE_ID não encontrado nas variáveis de ambiente');
+    process.exit(1);
+}
+
+console.log('✅ Variáveis de ambiente carregadas:');
+console.log(`📡 Canal: ${DISCORD_CHANNEL_ID}`);
+console.log(`🏷️  Place ID: ${PLACE_ID}`);
+
 // ZERO CACHE CONFIG - DADOS ULTRA FRESCOS EM TEMPO REAL
 app.use(cors({
     origin: '*',
@@ -33,7 +58,9 @@ let liveStats = {
     fresh: 0,
     lastJobId: null,
     lastUpdate: 0,
-    responseCount: 0
+    responseCount: 0,
+    channelId: DISCORD_CHANNEL_ID,
+    placeId: PLACE_ID
 };
 
 // Regex ultra otimizada (pré-compilada)
@@ -106,6 +133,9 @@ function instantClean() {
 
 // Event listener ZERO CACHE - Processamento instantâneo
 client.on('messageCreate', message => {
+    // FILTRO POR CANAL - Só monitora o canal específico
+    if (message.channel.id !== DISCORD_CHANNEL_ID) return;
+    
     // Filtros ultra rápidos
     if (!message.author.bot) return;
     
@@ -138,7 +168,9 @@ client.on('messageCreate', message => {
                     jobId,
                     timestamp: now,
                     source: username,
-                    fresh: true
+                    fresh: true,
+                    channelId: DISCORD_CHANNEL_ID,
+                    placeId: PLACE_ID
                 });
                 newCount++;
             }
@@ -153,7 +185,7 @@ client.on('messageCreate', message => {
             // Limpeza instantânea após adição
             instantClean();
             
-            console.log(`⚡ INSTANT: ${newCount} fresh JobIds | Total: ${liveJobIds.length}`);
+            console.log(`⚡ INSTANT: ${newCount} fresh JobIds | Total: ${liveJobIds.length} | Canal: ${DISCORD_CHANNEL_ID}`);
             
             // Reação sem await
             message.react('🎯').catch(() => {});
@@ -165,7 +197,11 @@ client.on('messageCreate', message => {
 });
 
 // Eventos mínimos
-client.on('ready', () => console.log(`✅ ${client.user.tag} - ZERO CACHE MODE`));
+client.on('ready', () => {
+    console.log(`✅ ${client.user.tag} - ZERO CACHE MODE`);
+    console.log(`📡 Monitorando canal: ${DISCORD_CHANNEL_ID}`);
+    console.log(`🏷️  Place ID: ${PLACE_ID}`);
+});
 client.on('error', () => {});
 
 // ENDPOINT ZERO CACHE - ULTRA VELOCIDADE
@@ -192,7 +228,9 @@ app.get('/pets/fresh', (req, res) => {
             jobId: job.jobId,
             timestamp: job.timestamp,
             source: job.source,
-            age: Math.floor((now - job.timestamp) / 1000)
+            age: Math.floor((now - job.timestamp) / 1000),
+            channelId: job.channelId,
+            placeId: job.placeId
         }))
         .sort((a, b) => b.timestamp - a.timestamp); // Mais recente primeiro
     
@@ -204,7 +242,9 @@ app.get('/pets/fresh', (req, res) => {
         jobIds: ultraFreshJobs,
         timestamp: now,
         mode: 'ZERO_CACHE',
-        freshWindow: ULTRA_FRESH_WINDOW
+        freshWindow: ULTRA_FRESH_WINDOW,
+        channelId: DISCORD_CHANNEL_ID,
+        placeId: PLACE_ID
     });
 });
 
@@ -220,7 +260,12 @@ app.get('/bot/status', (req, res) => {
         connected: client.isReady(),
         mode: 'ZERO_CACHE',
         freshWindow: ULTRA_FRESH_WINDOW,
-        maxBuffer: MAX_LIVE_IDS
+        maxBuffer: MAX_LIVE_IDS,
+        config: {
+            channelId: DISCORD_CHANNEL_ID,
+            placeId: PLACE_ID,
+            botToken: DISCORD_BOT_TOKEN ? '***CONFIGURADO***' : '❌ AUSENTE'
+        }
     });
 });
 
@@ -239,7 +284,9 @@ app.post('/bot/test', (req, res) => {
                 jobId,
                 timestamp: now,
                 source: 'TEST',
-                fresh: true
+                fresh: true,
+                channelId: DISCORD_CHANNEL_ID,
+                placeId: PLACE_ID
             });
             added++;
         }
@@ -252,7 +299,9 @@ app.post('/bot/test', (req, res) => {
         found: jobIds.length,
         added: added,
         jobIds,
-        total: liveJobIds.length
+        total: liveJobIds.length,
+        channelId: DISCORD_CHANNEL_ID,
+        placeId: PLACE_ID
     });
 });
 
@@ -264,7 +313,12 @@ app.get('/', (req, res) => {
         freshWindow: ULTRA_FRESH_WINDOW + 'ms',
         liveJobs: liveJobIds.length,
         processed: liveStats.processed,
-        responses: liveStats.responseCount
+        responses: liveStats.responseCount,
+        config: {
+            channelId: DISCORD_CHANNEL_ID,
+            placeId: PLACE_ID,
+            monitoring: 'CANAL ESPECÍFICO'
+        }
     });
 });
 
@@ -291,10 +345,8 @@ function ultraKeepAlive() {
 // Inicialização ZERO CACHE
 async function zeroStart() {
     try {
-        if (process.env.DISCORD_BOT_TOKEN) {
-            await client.login(process.env.DISCORD_BOT_TOKEN);
-            console.log('🤖 Bot ONLINE - ZERO CACHE MODE');
-        }
+        await client.login(DISCORD_BOT_TOKEN);
+        console.log('🤖 Bot ONLINE - ZERO CACHE MODE');
         
         app.listen(PORT, () => {
             console.log(`🚀 ZERO CACHE SERVER: ${PORT}`);
@@ -302,6 +354,9 @@ async function zeroStart() {
             console.log(`🔥 Fresh Window: ${ULTRA_FRESH_WINDOW}ms`);
             console.log(`📡 Fresh Endpoint: /pets/fresh`);
             console.log(`💨 Max Buffer: ${MAX_LIVE_IDS} JobIds`);
+            console.log(`📋 Configuração:`);
+            console.log(`   📡 Canal: ${DISCORD_CHANNEL_ID}`);
+            console.log(`   🏷️  Place: ${PLACE_ID}`);
             
             // Inicia keep-alive
             ultraKeepAlive();
@@ -309,6 +364,10 @@ async function zeroStart() {
         
     } catch (error) {
         console.error('❌ Zero start error:', error);
+        console.error('🔧 Verifique as variáveis de ambiente:');
+        console.error(`   - DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN ? 'OK' : 'AUSENTE'}`);
+        console.error(`   - DISCORD_CHANNEL_ID: ${DISCORD_CHANNEL_ID || 'AUSENTE'}`);
+        console.error(`   - PLACE_ID: ${PLACE_ID || 'AUSENTE'}`);
         process.exit(1);
     }
 }
