@@ -141,16 +141,31 @@ async function initializeDiscordBot() {
             botStats.messagesProcessed++;
             botStats.lastActivity = new Date().toISOString();
             
+            // Log da mensagem recebida (para debug)
+            console.log(`📨 Nova mensagem de ${message.author.username}: ${message.content.substring(0, 100)}...`);
+            
             // Extrai JobIds da mensagem
             const jobIds = extractJobIds(message.content);
             
             if (jobIds.length > 0) {
-                console.log(`🔍 Discord: Encontrados JobIds na mensagem de ${message.author.username}: ${jobIds.join(', ')}`);
+                console.log(`🔍 Discord: Encontrados JobIds na mensagem de ${message.author.username}:`);
+                jobIds.forEach(id => console.log(`   → ${id}`));
                 
                 const added = addNewJobIds(jobIds, 'discord');
                 
                 if (added > 0) {
-                    // Opcional: Reagir à mensagem
+                    console.log(`✅ ${added} novos JobIds adicionados à API`);
+                    
+                    // Reage à mensagem com sucesso
+                    try {
+                        await message.react('🎯');
+                    } catch (error) {
+                        console.log('Não foi possível reagir à mensagem');
+                    }
+                } else {
+                    console.log(`ℹ️ JobIds já conhecidos, nenhum adicionado`);
+                    
+                    // Reage com check para mostrar que foi processado
                     try {
                         await message.react('✅');
                     } catch (error) {
