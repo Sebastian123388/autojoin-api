@@ -3,436 +3,213 @@ const axios = require('axios');
 const cors = require('cors');
 
 const app = express();
+app.use(cors());
+app.use(express.json());
 
-// ⚡ CONFIGURAÇÕES ULTRA-RÁPIDAS - ZERO CACHE
-app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: false
-}));
-app.use(express.json({ limit: '500kb' }));
-
-// 🚫 ANTI-CACHE ABSOLUTO - DADOS SEMPRE FRESCOS
-app.use((req, res, next) => {
-    res.set({
-        'Cache-Control': 'no-cache, no-store, must-revalidate, private, max-age=0',
-        'Pragma': 'no-cache',
-        'Expires': '0',
-        'Surrogate-Control': 'no-store',
-        'X-Accel-Expires': '0',
-        'Connection': 'close',
-        'X-Fresh-Data': Date.now().toString(),
-        'Access-Control-Allow-Origin': '*'
-    });
-    next();
-});
-
-// CONFIGURAÇÕES
+// CONFIGURAÇÕES - ALTERE AQUI!
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 const DISCORD_API = 'https://discord.com/api/v10';
 
-// 📊 Métricas otimizadas
-let metrics = { 
-    requests: 0, 
-    lastFetch: 0, 
-    serversFound: 0,
-    errors: 0,
-    uptime: Date.now()
-};
+// Cache
+let cachedData = [];
+let lastFetch = 0;
+const CACHE_TIME = 30000; // 30 segundos
 
-// ⚡ Buscar mensagens do Discord - OTIMIZAÇÃO EXTREMA
+// Buscar mensagens do Discord
 async function fetchDiscordMessages() {
-    const startTime = Date.now();
-    
     try {
+        console.log('🔍 Buscando mensagens do Discord...');
         const response = await axios.get(
-            `${DISCORD_API}/channels/${CHANNEL_ID}/messages`,
+            `${DISCORD_API}/channels/${CHANNEL_ID}/messages?limit=50`,
             {
                 headers: {
                     'Authorization': `Bot ${DISCORD_TOKEN}`,
-                    'Content-Type': 'application/json',
-                    'Cache-Control': 'no-cache',
-                    'X-Request-ID': Date.now().toString()
-                },
-                params: {
-                    limit: 30, // Aumentado para pegar mais servidores
-                    _t: Date.now()
-                },
-                timeout: 5000,
-                maxRedirects: 0
+                    'Content-Type': 'application/json'
+                }
             }
         );
-        
-        const fetchTime = Date.now() - startTime;
-        console.log(`⚡ Discord: ${response.data.length} msgs em ${fetchTime}ms`);
-        metrics.lastFetch = fetchTime;
-
+        console.log(`✅ ${response.data.length} mensagens encontradas`);
         return response.data;
     } catch (error) {
-        console.error('❌ Discord Error:', error.response?.status || error.message);
-        metrics.errors++;
+        console.error('❌ Erro ao buscar mensagens:', error.response?.data || error.message);
         return [];
     }
 }
 
-// 🔥 Processamento ULTRA-OTIMIZADO - BRAINROT NOTIFY
+// Processar mensagens - ATUALIZADO PARA SEU FORMATO
 function processMessages(messages) {
-    const startTime = Date.now();
-    const data = [];
+    const processedData = [];
     
-    // Filtro apenas últimas 6 horas para max velocidade
-    const cutoff = Date.now() - (6 * 60 * 60 * 1000);
-    
-    console.log(`🔍 Processando ${messages.length} mensagens...`);
-    
-    for (const msg of messages) {
-        if (new Date(msg.timestamp).getTime() < cutoff) continue;
+    messages.forEach(message => {
+        console.log('📋 Processando mensagem:', message.content.substring(0, 100) + '...');
         
-        // Processa embeds - FORMATO BRAINROT NOTIFY | CHILLI HUB
-        if (msg.embeds?.length > 0) {
-            for (let i = 0; i < msg.embeds.length; i++) {
-                const embed = msg.embeds[i];
+        // PADRÕES ESPECÍFICOS PARA BRAINROT NOTIFY
+        const jobIdPatterns = [
+            // Para "Job ID (Mobile)"
+            /Job ID \(Mobile\)[:\s]*\n([a-zA-Z0-9]+)/i,
+            // Para "Job ID (iOS)" 
+            /Job ID \(iOS\)[:\s]*\n([a-zA-Z0-9]+)/i,
+            // Para "Job ID (PC)"
+            /Job ID \(PC\)[:\s]*\n([a-zA-Z0-9]+)/i,
+            // Padrão genérico
+            /Job ID[:\s]*\(.*?\)[:\s]*\n([a-zA-Z0-9]+)/i,
+            // Fallback - qualquer Job ID
+            /Job[:\s]*ID[:\s]*([a-zA-Z0-9]+)/i
+        ];
+        
+        let jobIdFound = null;
+        let platform = 'Unknown';
+        
+        for (const pattern of jobIdPatterns) {
+            const match = message.content.match(pattern);
+            if (match) {
+                jobIdFound = match[1];
                 
-                // Busca pelo título específico
-                if (!embed.title?.includes('Brainrot Notify') || !embed.title?.includes('Chilli Hub')) continue;
+                // Determinar plataforma
+                if (message.content.includes('(Mobile)')) platform = 'Mobile';
+                else if (message.content.includes('(iOS)')) platform = 'iOS';
+                else if (message.content.includes('(PC)')) platform = 'PC';
                 
-                let serverName = null, moneyPerSec = null, players = null;
-                let mobileJobId = null, iosJobId = null, pcJobId = null;
-                
-                if (embed.fields?.length > 0) {
-                    for (const field of embed.fields) {
-                        const name = field.name;
-                        const value = field.value.trim();
-                        
-                        // Identificação precisa dos campos
-                        if (name.includes('Name') && name.includes('🏷️')) {
-                            serverName = value;
-                        }
-                        else if (name.includes('Money per sec') && name.includes('💰')) {
-                            moneyPerSec = value;
-                        }
-                        else if (name.includes('Players') && name.includes('👥')) {
-                            players = value;
-                        }
-                        else if (name === 'Job ID (Mobile)' || name.includes('📱')) {
-                            mobileJobId = value;
-                        }
-                        else if (name === 'Job ID (iOS)' || name.includes('🍎')) {
-                            iosJobId = value;
-                        }
-                        else if (name === 'Job ID (PC)' || name.includes('💻')) {
-                            pcJobId = value;
-                        }
-                    }
-                }
-                
-                // Cria entrada para cada Job ID válido
-                let entriesCreated = 0;
-                
-                if (mobileJobId && mobileJobId.length > 10) {
-                    data.push({
-                        id: `${msg.id}_${i}_mobile_${Date.now()}`,
-                        timestamp: msg.timestamp,
-                        job_ids: [mobileJobId],
-                        platform: 'Mobile',
-                        server_name: serverName,
-                        money_per_sec: moneyPerSec,
-                        players: players,
-                        author: msg.author.username,
-                        embed_title: embed.title,
-                        fresh: Date.now()
-                    });
-                    entriesCreated++;
-                }
-                
-                if (iosJobId && iosJobId.length > 10) {
-                    data.push({
-                        id: `${msg.id}_${i}_ios_${Date.now()}`,
-                        timestamp: msg.timestamp,
-                        job_ids: [iosJobId],
-                        platform: 'iOS',
-                        server_name: serverName,
-                        money_per_sec: moneyPerSec,
-                        players: players,
-                        author: msg.author.username,
-                        embed_title: embed.title,
-                        fresh: Date.now()
-                    });
-                    entriesCreated++;
-                }
-                
-                if (pcJobId && pcJobId.length > 10) {
-                    data.push({
-                        id: `${msg.id}_${i}_pc_${Date.now()}`,
-                        timestamp: msg.timestamp,
-                        job_ids: [pcJobId],
-                        platform: 'PC',
-                        server_name: serverName,
-                        money_per_sec: moneyPerSec,
-                        players: players,
-                        author: msg.author.username,
-                        embed_title: embed.title,
-                        fresh: Date.now()
-                    });
-                    entriesCreated++;
-                }
-                
-                if (entriesCreated > 0) {
-                    console.log(`🎯 ${entriesCreated} servidores de "${serverName}" (${players})`);
-                }
+                console.log('🎯 Job ID encontrado:', jobIdFound, 'Plataforma:', platform);
+                break;
             }
         }
-        // Processa mensagens de texto simples (fallback)
-        else if (msg.content?.trim()) {
-            const content = msg.content;
-            const patterns = [
-                /Job ID \((Mobile|iOS|PC)\)[:\s]*\n([a-zA-Z0-9]+)/i,
-                /Job[:\s]*ID[:\s]*([a-zA-Z0-9]+)/i
-            ];
+        
+        if (jobIdFound) {
+            // Extrair informações adicionais
+            const nameMatch = message.content.match(/Name[:\s]*\n(.+)/i);
+            const moneyMatch = message.content.match(/Money per sec[:\s]*\n(.+)/i);
+            const playersMatch = message.content.match(/Players[:\s]*\n(\d+\/\d+)/i);
             
-            for (const pattern of patterns) {
-                const match = content.match(pattern);
-                if (match) {
-                    let platform = match[1] || 'Unknown';
-                    let jobId = match[2] || match[1];
-                    
-                    if (jobId && jobId.length > 10) {
-                        const nameMatch = content.match(/Name[:\s]*\n(.+)/i);
-                        const moneyMatch = content.match(/Money per sec[:\s]*\n(.+)/i);
-                        const playersMatch = content.match(/Players[:\s]*\n(\d+\/\d+)/i);
-                        
-                        data.push({
-                            id: `${msg.id}_text_${Date.now()}`,
-                            timestamp: msg.timestamp,
-                            job_ids: [jobId],
-                            platform: platform,
-                            server_name: nameMatch?.[1]?.trim() || null,
-                            money_per_sec: moneyMatch?.[1]?.trim() || null,
-                            players: playersMatch?.[1]?.trim() || null,
-                            author: msg.author.username,
-                            fresh: Date.now()
-                        });
-                        break;
-                    }
-                }
-            }
+            const processedEntry = {
+                id: message.id,
+                timestamp: message.timestamp,
+                job_ids: [jobIdFound],
+                platform: platform,
+                server_name: nameMatch ? nameMatch[1].trim() : null,
+                money_per_sec: moneyMatch ? moneyMatch[1].trim() : null,
+                players: playersMatch ? playersMatch[1].trim() : null,
+                author: message.author.username,
+                content: message.content.substring(0, 300), // Primeiros 300 chars
+                fresh: true
+            };
+            
+            processedData.push(processedEntry);
+            console.log('✅ Entrada processada:', processedEntry);
+        } else {
+            console.log('❌ Nenhum Job ID encontrado nesta mensagem');
         }
-    }
+    });
     
-    // Ordena por timestamp mais recente primeiro
-    data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    
-    const processTime = Date.now() - startTime;
-    metrics.serversFound = data.length;
-    console.log(`🚀 ${data.length} servidores processados em ${processTime}ms`);
-    
-    return data;
+    // Ordena por timestamp (mais recente primeiro)
+    const sorted = processedData.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    console.log(`🚀 Total de ${sorted.length} entradas processadas`);
+    return sorted;
 }
 
-// 🎯 ENDPOINT PRINCIPAL - /pets (para compatibilidade com o script Lua)
+// ENDPOINT PRINCIPAL
 app.get('/pets', async (req, res) => {
-    const start = Date.now();
-    metrics.requests++;
+    const now = Date.now();
+    
+    // Verifica cache
+    if (now - lastFetch < CACHE_TIME && cachedData.length > 0) {
+        console.log('📦 Usando cache...');
+        return res.json(cachedData);
+    }
     
     try {
-        // Headers para dados ultra-frescos
-        res.set({
-            'Content-Type': 'application/json; charset=utf-8',
-            'X-Fetch-Time': Date.now().toString(),
-            'X-Request-ID': `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            'X-Server-Count': '0' // Será atualizado abaixo
-        });
-        
         const messages = await fetchDiscordMessages();
-        const servers = processMessages(messages);
+        const processedData = processMessages(messages);
         
-        const responseTime = Date.now() - start;
+        cachedData = processedData;
+        lastFetch = now;
         
-        // Atualiza header com contagem de servidores
-        res.set('X-Server-Count', servers.length.toString());
-        
-        console.log(`⚡ API Response: ${responseTime}ms | ${servers.length} servidores`);
-        
-        // Resposta no formato exato que o script Lua espera
-        res.json(servers);
-        
+        console.log(`🚀 Retornando ${processedData.length} entradas processadas`);
+        res.json(processedData);
     } catch (error) {
-        console.error('❌ API Error:', error.message);
-        metrics.errors++;
+        console.error('❌ Erro no endpoint:', error);
         res.status(500).json({ 
-            error: 'Internal server error',
-            timestamp: Date.now(),
-            fresh: false
+            error: 'Erro interno do servidor',
+            timestamp: new Date().toISOString()
         });
     }
 });
 
-// 🎯 Endpoint para Debug - simula processamento do Lua
+// Endpoint de teste
+app.get('/test', (req, res) => {
+    res.json({ 
+        status: '✅ API Online!', 
+        timestamp: new Date().toISOString(),
+        config: {
+            hasToken: !!DISCORD_TOKEN,
+            hasChannelId: !!CHANNEL_ID,
+            cacheEntries: cachedData.length,
+            lastFetch: lastFetch ? new Date(lastFetch).toISOString() : null
+        },
+        patterns: [
+            'Job ID (Mobile)',
+            'Job ID (iOS)', 
+            'Job ID (PC)',
+            'Brainrot Notify format'
+        ]
+    });
+});
+
+// Endpoint de status
+app.get('/status', (req, res) => {
+    res.json({
+        status: 'online',
+        uptime: process.uptime(),
+        cached_entries: cachedData.length,
+        last_fetch: lastFetch ? new Date(lastFetch).toISOString() : null,
+        next_fetch: lastFetch ? new Date(lastFetch + CACHE_TIME).toISOString() : null,
+        sample_data: cachedData.slice(0, 2) // Primeiras 2 entradas como exemplo
+    });
+});
+
+// Endpoint para debug - mostra mensagens raw COM EMBEDS
 app.get('/debug', async (req, res) => {
     try {
         const messages = await fetchDiscordMessages();
-        const data = processMessages(messages);
+        const rawMessages = messages.slice(0, 5).map(msg => ({
+            id: msg.id,
+            content: msg.content,
+            author: msg.author.username,
+            timestamp: msg.timestamp,
+            has_embeds: msg.embeds && msg.embeds.length > 0,
+            embeds: msg.embeds ? msg.embeds.map(embed => ({
+                title: embed.title,
+                description: embed.description,
+                fields: embed.fields ? embed.fields.map(field => ({
+                    name: field.name,
+                    value: field.value
+                })) : []
+            })) : []
+        }));
         
-        // Simula exatamente como o script Lua processa
-        const luaSimulation = {
-            totalServers: data.length,
-            serversByPlatform: {
-                PC: data.filter(s => s.platform === 'PC').length,
-                Mobile: data.filter(s => s.platform === 'Mobile').length,
-                iOS: data.filter(s => s.platform === 'iOS').length
-            },
-            recentServers: data.slice(0, 5).map((server, index) => ({
-                index: index,
-                hasJobIds: !!(server.job_ids && server.job_ids.length > 0),
-                firstJobId: server.job_ids ? server.job_ids[0].substring(0, 12) + '...' : null,
-                platform: server.platform,
-                server: server.server_name,
-                players: server.players,
-                timestamp: server.timestamp
-            })),
-            rawDataSample: data.slice(0, 3) // Apenas primeiros 3 para debug
-        };
-        
-        res.json(luaSimulation);
+        res.json({
+            message: 'Últimas 5 mensagens do canal para debug (com embeds)',
+            messages: rawMessages
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// 📊 Métricas detalhadas
-app.get('/metrics', (req, res) => {
-    const uptimeSeconds = Math.floor((Date.now() - metrics.uptime) / 1000);
-    const hours = Math.floor(uptimeSeconds / 3600);
-    const minutes = Math.floor((uptimeSeconds % 3600) / 60);
-    const seconds = uptimeSeconds % 60;
-    
-    res.json({
-        requests: metrics.requests,
-        servers_found: metrics.serversFound,
-        errors: metrics.errors,
-        last_fetch_ms: metrics.lastFetch,
-        uptime: `${hours}h ${minutes}m ${seconds}s`,
-        uptime_seconds: uptimeSeconds,
-        memory_mb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-        timestamp: Date.now(),
-        fresh: true,
-        config: {
-            discord_token: !!DISCORD_TOKEN,
-            channel_id: !!CHANNEL_ID,
-            node_env: process.env.NODE_ENV || 'development'
-        }
-    });
-});
-
-// ⚡ Teste ultra-rápido
-app.get('/test', (req, res) => {
-    res.json({ 
-        status: '⚡ AutoJoin Ultra API',
-        version: '2.0.0',
-        timestamp: Date.now(),
-        requests: metrics.requests,
-        servers_found: metrics.serversFound,
-        config_ok: !!(DISCORD_TOKEN && CHANNEL_ID),
-        endpoints: [
-            'GET /pets - Dados para AutoJoin',
-            'GET /debug - Debug do processamento',
-            'GET /metrics - Estatísticas detalhadas',
-            'GET /test - Este endpoint',
-            'GET /status - Status resumido',
-            'GET /health - Health check'
-        ],
-        fresh: true
-    });
-});
-
-// 🔥 Status resumido
-app.get('/status', (req, res) => {
-    res.json({
-        status: '🚀 ONLINE',
-        uptime: Math.floor((Date.now() - metrics.uptime) / 1000),
-        requests: metrics.requests,
-        servers: metrics.serversFound,
-        errors: metrics.errors,
-        last_check: metrics.lastFetch,
-        fresh: Date.now()
-    });
-});
-
-// 💚 Health check para render.com
-app.get('/health', (req, res) => {
-    res.json({ 
-        ok: true, 
-        timestamp: Date.now(),
-        service: 'autojoin-ultra-api'
-    });
-});
-
-// 🌐 Root endpoint
-app.get('/', (req, res) => {
-    res.json({
-        name: '⚡ AutoJoin Ultra API',
-        version: '2.0.0',
-        description: 'Ultra-fast Discord message processor for Roblox AutoJoin',
-        endpoints: {
-            '/pets': 'Main endpoint for AutoJoin script',
-            '/debug': 'Debug information',
-            '/metrics': 'Detailed metrics',
-            '/test': 'Quick test',
-            '/status': 'Status summary',
-            '/health': 'Health check'
-        },
-        github: 'https://github.com/your-repo',
-        timestamp: Date.now()
-    });
-});
-
-// 🚀 INICIALIZAÇÃO
+// Iniciar servidor
 const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n🚀 AutoJoin Ultra API v2.0`);
-    console.log(`⚡ Rodando na porta: ${PORT}`);
-    console.log(`🌐 Endpoints disponíveis:`);
-    console.log(`   📡 GET /pets - Dados para AutoJoin Lua`);
-    console.log(`   🐛 GET /debug - Debug do processamento`);
-    console.log(`   📊 GET /metrics - Métricas detalhadas`);
-    console.log(`   ⚡ GET /test - Teste rápido`);
-    console.log(`   📈 GET /status - Status resumido`);
-    console.log(`   💚 GET /health - Health check`);
+app.listen(PORT, () => {
+    console.log(`🚀 Servidor rodando na porta ${PORT}`);
+    console.log(`🔗 Endpoints disponíveis:`);
+    console.log(`   • GET /pets - Dados principais`);
+    console.log(`   • GET /test - Teste da API`);
+    console.log(`   • GET /status - Status do sistema`);
+    console.log(`   • GET /debug - Debug de mensagens`);
     
     if (!DISCORD_TOKEN || !CHANNEL_ID) {
-        console.log(`\n⚠️  ATENÇÃO: Configure as variáveis de ambiente!`);
-        console.log(`   DISCORD_TOKEN=${DISCORD_TOKEN ? '✅' : '❌'}`);
-        console.log(`   CHANNEL_ID=${CHANNEL_ID ? '✅' : '❌'}`);
+        console.warn('⚠️  ATENÇÃO: Configure as variáveis DISCORD_TOKEN e CHANNEL_ID!');
     } else {
-        console.log(`\n✅ Configuração completa!`);
-        console.log(`🎯 Monitorando canal: ${CHANNEL_ID}`);
-        console.log(`🔥 DADOS SEMPRE FRESCOS - ZERO CACHE`);
+        console.log('✅ Configuração OK - Pronto para detectar Job IDs do Brainrot Notify!');
     }
-    
-    console.log(`\n🚀 Sistema pronto para AutoJoin Ultra!`);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('\n🛑 Recebido SIGTERM, desligando graciosamente...');
-    process.exit(0);
-});
-
-process.on('SIGINT', () => {
-    console.log('\n🛑 Recebido SIGINT, desligando graciosamente...');
-    process.exit(0);
-});
-
-// Error handling global
-process.on('uncaughtException', (error) => {
-    console.error('❌ Uncaught Exception:', error);
-    metrics.errors++;
-});
-
-process.on('unhandledRejection', (error) => {
-    console.error('❌ Unhandled Rejection:', error);
-    metrics.errors++;
 });
