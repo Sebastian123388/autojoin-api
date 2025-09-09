@@ -1,438 +1,477 @@
 const express = require('express');
-const axios = require('axios');
 const cors = require('cors');
+const fs = require('fs').promises;
+const path = require('path');
+const axios = require('axios');
 
 const app = express();
-
-// ⚡ CONFIGURAÇÕES ULTRA-RÁPIDAS - ZERO CACHE
-app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: false
-}));
-app.use(express.json({ limit: '500kb' }));
-
-// 🚫 ANTI-CACHE ABSOLUTO - DADOS SEMPRE FRESCOS
-app.use((req, res, next) => {
-    res.set({
-        'Cache-Control': 'no-cache, no-store, must-revalidate, private, max-age=0',
-        'Pragma': 'no-cache',
-        'Expires': '0',
-        'Surrogate-Control': 'no-store',
-        'X-Accel-Expires': '0',
-        'Connection': 'close',
-        'X-Fresh-Data': Date.now().toString(),
-        'Access-Control-Allow-Origin': '*'
-    });
-    next();
-});
-
-// CONFIGURAÇÕES
-const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const CHANNEL_ID = process.env.CHANNEL_ID;
-const DISCORD_API = 'https://discord.com/api/v10';
-
-// 📊 Métricas otimizadas
-let metrics = { 
-    requests: 0, 
-    lastFetch: 0, 
-    serversFound: 0,
-    errors: 0,
-    uptime: Date.now()
-};
-
-// ⚡ Buscar mensagens do Discord - OTIMIZAÇÃO EXTREMA
-async function fetchDiscordMessages() {
-    const startTime = Date.now();
-    
-    try {
-        const response = await axios.get(
-            `${DISCORD_API}/channels/${CHANNEL_ID}/messages`,
-            {
-                headers: {
-                    'Authorization': `Bot ${DISCORD_TOKEN}`,
-                    'Content-Type': 'application/json',
-                    'Cache-Control': 'no-cache',
-                    'X-Request-ID': Date.now().toString()
-                },
-                params: {
-                    limit: 30, // Aumentado para pegar mais servidores
-                    _t: Date.now()
-                },
-                timeout: 5000,
-                maxRedirects: 0
-            }
-        );
-        
-        const fetchTime = Date.now() - startTime;
-        console.log(`⚡ Discord: ${response.data.length} msgs em ${fetchTime}ms`);
-        metrics.lastFetch = fetchTime;
-
-        return response.data;
-    } catch (error) {
-        console.error('❌ Discord Error:', error.response?.status || error.message);
-        metrics.errors++;
-        return [];
-    }
-}
-
-// 🔥 Processamento ULTRA-OTIMIZADO - BRAINROT NOTIFY
-function processMessages(messages) {
-    const startTime = Date.now();
-    const data = [];
-    
-    // Filtro apenas últimas 6 horas para max velocidade
-    const cutoff = Date.now() - (6 * 60 * 60 * 1000);
-    
-    console.log(`🔍 Processando ${messages.length} mensagens...`);
-    
-    for (const msg of messages) {
-        if (new Date(msg.timestamp).getTime() < cutoff) continue;
-        
-        // Processa embeds - FORMATO BRAINROT NOTIFY | CHILLI HUB
-        if (msg.embeds?.length > 0) {
-            for (let i = 0; i < msg.embeds.length; i++) {
-                const embed = msg.embeds[i];
-                
-                // Busca pelo título específico
-                if (!embed.title?.includes('Brainrot Notify') || !embed.title?.includes('Chilli Hub')) continue;
-                
-                let serverName = null, moneyPerSec = null, players = null;
-                let mobileJobId = null, iosJobId = null, pcJobId = null;
-                
-                if (embed.fields?.length > 0) {
-                    for (const field of embed.fields) {
-                        const name = field.name;
-                        const value = field.value.trim();
-                        
-                        // Identificação precisa dos campos
-                        if (name.includes('Name') && name.includes('🏷️')) {
-                            serverName = value;
-                        }
-                        else if (name.includes('Money per sec') && name.includes('💰')) {
-                            moneyPerSec = value;
-                        }
-                        else if (name.includes('Players') && name.includes('👥')) {
-                            players = value;
-                        }
-                        else if (name === 'Job ID (Mobile)' || name.includes('📱')) {
-                            mobileJobId = value;
-                        }
-                        else if (name === 'Job ID (iOS)' || name.includes('🍎')) {
-                            iosJobId = value;
-                        }
-                        else if (name === 'Job ID (PC)' || name.includes('💻')) {
-                            pcJobId = value;
-                        }
-                    }
-                }
-                
-                // Cria entrada para cada Job ID válido
-                let entriesCreated = 0;
-                
-                if (mobileJobId && mobileJobId.length > 10) {
-                    data.push({
-                        id: `${msg.id}_${i}_mobile_${Date.now()}`,
-                        timestamp: msg.timestamp,
-                        job_ids: [mobileJobId],
-                        platform: 'Mobile',
-                        server_name: serverName,
-                        money_per_sec: moneyPerSec,
-                        players: players,
-                        author: msg.author.username,
-                        embed_title: embed.title,
-                        fresh: Date.now()
-                    });
-                    entriesCreated++;
-                }
-                
-                if (iosJobId && iosJobId.length > 10) {
-                    data.push({
-                        id: `${msg.id}_${i}_ios_${Date.now()}`,
-                        timestamp: msg.timestamp,
-                        job_ids: [iosJobId],
-                        platform: 'iOS',
-                        server_name: serverName,
-                        money_per_sec: moneyPerSec,
-                        players: players,
-                        author: msg.author.username,
-                        embed_title: embed.title,
-                        fresh: Date.now()
-                    });
-                    entriesCreated++;
-                }
-                
-                if (pcJobId && pcJobId.length > 10) {
-                    data.push({
-                        id: `${msg.id}_${i}_pc_${Date.now()}`,
-                        timestamp: msg.timestamp,
-                        job_ids: [pcJobId],
-                        platform: 'PC',
-                        server_name: serverName,
-                        money_per_sec: moneyPerSec,
-                        players: players,
-                        author: msg.author.username,
-                        embed_title: embed.title,
-                        fresh: Date.now()
-                    });
-                    entriesCreated++;
-                }
-                
-                if (entriesCreated > 0) {
-                    console.log(`🎯 ${entriesCreated} servidores de "${serverName}" (${players})`);
-                }
-            }
-        }
-        // Processa mensagens de texto simples (fallback)
-        else if (msg.content?.trim()) {
-            const content = msg.content;
-            const patterns = [
-                /Job ID \((Mobile|iOS|PC)\)[:\s]*\n([a-zA-Z0-9]+)/i,
-                /Job[:\s]*ID[:\s]*([a-zA-Z0-9]+)/i
-            ];
-            
-            for (const pattern of patterns) {
-                const match = content.match(pattern);
-                if (match) {
-                    let platform = match[1] || 'Unknown';
-                    let jobId = match[2] || match[1];
-                    
-                    if (jobId && jobId.length > 10) {
-                        const nameMatch = content.match(/Name[:\s]*\n(.+)/i);
-                        const moneyMatch = content.match(/Money per sec[:\s]*\n(.+)/i);
-                        const playersMatch = content.match(/Players[:\s]*\n(\d+\/\d+)/i);
-                        
-                        data.push({
-                            id: `${msg.id}_text_${Date.now()}`,
-                            timestamp: msg.timestamp,
-                            job_ids: [jobId],
-                            platform: platform,
-                            server_name: nameMatch?.[1]?.trim() || null,
-                            money_per_sec: moneyMatch?.[1]?.trim() || null,
-                            players: playersMatch?.[1]?.trim() || null,
-                            author: msg.author.username,
-                            fresh: Date.now()
-                        });
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    
-    // Ordena por timestamp mais recente primeiro
-    data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    
-    const processTime = Date.now() - startTime;
-    metrics.serversFound = data.length;
-    console.log(`🚀 ${data.length} servidores processados em ${processTime}ms`);
-    
-    return data;
-}
-
-// 🎯 ENDPOINT PRINCIPAL - /pets (para compatibilidade com o script Lua)
-app.get('/pets', async (req, res) => {
-    const start = Date.now();
-    metrics.requests++;
-    
-    try {
-        // Headers para dados ultra-frescos
-        res.set({
-            'Content-Type': 'application/json; charset=utf-8',
-            'X-Fetch-Time': Date.now().toString(),
-            'X-Request-ID': `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            'X-Server-Count': '0' // Será atualizado abaixo
-        });
-        
-        const messages = await fetchDiscordMessages();
-        const servers = processMessages(messages);
-        
-        const responseTime = Date.now() - start;
-        
-        // Atualiza header com contagem de servidores
-        res.set('X-Server-Count', servers.length.toString());
-        
-        console.log(`⚡ API Response: ${responseTime}ms | ${servers.length} servidores`);
-        
-        // Resposta no formato exato que o script Lua espera
-        res.json(servers);
-        
-    } catch (error) {
-        console.error('❌ API Error:', error.message);
-        metrics.errors++;
-        res.status(500).json({ 
-            error: 'Internal server error',
-            timestamp: Date.now(),
-            fresh: false
-        });
-    }
-});
-
-// 🎯 Endpoint para Debug - simula processamento do Lua
-app.get('/debug', async (req, res) => {
-    try {
-        const messages = await fetchDiscordMessages();
-        const data = processMessages(messages);
-        
-        // Simula exatamente como o script Lua processa
-        const luaSimulation = {
-            totalServers: data.length,
-            serversByPlatform: {
-                PC: data.filter(s => s.platform === 'PC').length,
-                Mobile: data.filter(s => s.platform === 'Mobile').length,
-                iOS: data.filter(s => s.platform === 'iOS').length
-            },
-            recentServers: data.slice(0, 5).map((server, index) => ({
-                index: index,
-                hasJobIds: !!(server.job_ids && server.job_ids.length > 0),
-                firstJobId: server.job_ids ? server.job_ids[0].substring(0, 12) + '...' : null,
-                platform: server.platform,
-                server: server.server_name,
-                players: server.players,
-                timestamp: server.timestamp
-            })),
-            rawDataSample: data.slice(0, 3) // Apenas primeiros 3 para debug
-        };
-        
-        res.json(luaSimulation);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// 📊 Métricas detalhadas
-app.get('/metrics', (req, res) => {
-    const uptimeSeconds = Math.floor((Date.now() - metrics.uptime) / 1000);
-    const hours = Math.floor(uptimeSeconds / 3600);
-    const minutes = Math.floor((uptimeSeconds % 3600) / 60);
-    const seconds = uptimeSeconds % 60;
-    
-    res.json({
-        requests: metrics.requests,
-        servers_found: metrics.serversFound,
-        errors: metrics.errors,
-        last_fetch_ms: metrics.lastFetch,
-        uptime: `${hours}h ${minutes}m ${seconds}s`,
-        uptime_seconds: uptimeSeconds,
-        memory_mb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-        timestamp: Date.now(),
-        fresh: true,
-        config: {
-            discord_token: !!DISCORD_TOKEN,
-            channel_id: !!CHANNEL_ID,
-            node_env: process.env.NODE_ENV || 'development'
-        }
-    });
-});
-
-// ⚡ Teste ultra-rápido
-app.get('/test', (req, res) => {
-    res.json({ 
-        status: '⚡ AutoJoin Ultra API',
-        version: '2.0.0',
-        timestamp: Date.now(),
-        requests: metrics.requests,
-        servers_found: metrics.serversFound,
-        config_ok: !!(DISCORD_TOKEN && CHANNEL_ID),
-        endpoints: [
-            'GET /pets - Dados para AutoJoin',
-            'GET /debug - Debug do processamento',
-            'GET /metrics - Estatísticas detalhadas',
-            'GET /test - Este endpoint',
-            'GET /status - Status resumido',
-            'GET /health - Health check'
-        ],
-        fresh: true
-    });
-});
-
-// 🔥 Status resumido
-app.get('/status', (req, res) => {
-    res.json({
-        status: '🚀 ONLINE',
-        uptime: Math.floor((Date.now() - metrics.uptime) / 1000),
-        requests: metrics.requests,
-        servers: metrics.serversFound,
-        errors: metrics.errors,
-        last_check: metrics.lastFetch,
-        fresh: Date.now()
-    });
-});
-
-// 💚 Health check para render.com
-app.get('/health', (req, res) => {
-    res.json({ 
-        ok: true, 
-        timestamp: Date.now(),
-        service: 'autojoin-ultra-api'
-    });
-});
-
-// 🌐 Root endpoint
-app.get('/', (req, res) => {
-    res.json({
-        name: '⚡ AutoJoin Ultra API',
-        version: '2.0.0',
-        description: 'Ultra-fast Discord message processor for Roblox AutoJoin',
-        endpoints: {
-            '/pets': 'Main endpoint for AutoJoin script',
-            '/debug': 'Debug information',
-            '/metrics': 'Detailed metrics',
-            '/test': 'Quick test',
-            '/status': 'Status summary',
-            '/health': 'Health check'
-        },
-        github: 'https://github.com/your-repo',
-        timestamp: Date.now()
-    });
-});
-
-// 🚀 INICIALIZAÇÃO
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n🚀 AutoJoin Ultra API v2.0`);
-    console.log(`⚡ Rodando na porta: ${PORT}`);
-    console.log(`🌐 Endpoints disponíveis:`);
-    console.log(`   📡 GET /pets - Dados para AutoJoin Lua`);
-    console.log(`   🐛 GET /debug - Debug do processamento`);
-    console.log(`   📊 GET /metrics - Métricas detalhadas`);
-    console.log(`   ⚡ GET /test - Teste rápido`);
-    console.log(`   📈 GET /status - Status resumido`);
-    console.log(`   💚 GET /health - Health check`);
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.static('public'));
+
+// Configurações
+let config = {
+  enabled: true,
+  autojoinApiUrl: 'https://autojoin-api.onrender.com/pets',
+  monitorInterval: 5000, // 5 segundos
+  filters: {
+    minMoneyPerSec: 25, // Mínimo $25M/s
+    maxPlayers: 8, // Máximo 8 players
+    keywords: ['Grande', 'Combinasion', 'Pet', 'Huge'] // Palavras-chave para filtrar
+  },
+  notifications: [],
+  stats: {
+    totalNotifications: 0,
+    autojoinsAttempted: 0,
+    successfulJoins: 0
+  }
+};
+
+const CONFIG_FILE = path.join(__dirname, 'brainrot_config.json');
+
+// Carregar configurações
+async function loadConfig() {
+  try {
+    const data = await fs.readFile(CONFIG_FILE, 'utf8');
+    config = { ...config, ...JSON.parse(data) };
+    console.log('✅ Configurações carregadas');
+  } catch (error) {
+    console.log('⚙️ Usando configurações padrão');
+  }
+}
+
+// Salvar configurações
+async function saveConfig() {
+  try {
+    await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
+  } catch (error) {
+    console.error('❌ Erro ao salvar configurações:', error);
+  }
+}
+
+// Extrair valor monetário da string (ex: "$30M/s" -> 30)
+function parseMoneyValue(moneyStr) {
+  if (!moneyStr) return 0;
+  const match = moneyStr.match(/\$(\d+(?:\.\d+)?)([KMB])/i);
+  if (!match) return 0;
+  
+  const value = parseFloat(match[1]);
+  const unit = match[2].toLowerCase();
+  
+  switch(unit) {
+    case 'k': return value;
+    case 'm': return value * 1000;
+    case 'b': return value * 1000000;
+    default: return value;
+  }
+}
+
+// Verificar se a notificação atende aos filtros
+function shouldAutojoin(notification) {
+  const { filters } = config;
+  
+  // Verificar dinheiro por segundo
+  const moneyValue = parseMoneyValue(notification.moneyPerSec);
+  if (moneyValue < filters.minMoneyPerSec) return false;
+  
+  // Verificar número de players
+  if (notification.players) {
+    const [current] = notification.players.split('/').map(n => parseInt(n));
+    if (current >= filters.maxPlayers) return false;
+  }
+  
+  // Verificar palavras-chave no nome
+  if (filters.keywords.length > 0) {
+    const nameMatch = filters.keywords.some(keyword => 
+      notification.name.toLowerCase().includes(keyword.toLowerCase())
+    );
+    if (!nameMatch) return false;
+  }
+  
+  return true;
+}
+
+// Executar autojoin usando a API
+async function executeAutojoin(jobId, platform = 'mobile') {
+  try {
+    console.log(`🤖 Tentando autojoin: ${jobId} (${platform})`);
     
-    if (!DISCORD_TOKEN || !CHANNEL_ID) {
-        console.log(`\n⚠️  ATENÇÃO: Configure as variáveis de ambiente!`);
-        console.log(`   DISCORD_TOKEN=${DISCORD_TOKEN ? '✅' : '❌'}`);
-        console.log(`   CHANNEL_ID=${CHANNEL_ID ? '✅' : '❌'}`);
-    } else {
-        console.log(`\n✅ Configuração completa!`);
-        console.log(`🎯 Monitorando canal: ${CHANNEL_ID}`);
-        console.log(`🔥 DADOS SEMPRE FRESCOS - ZERO CACHE`);
+    const response = await axios.post(config.autojoinApiUrl, {
+      jobId: jobId,
+      platform: platform
+    }, {
+      timeout: 10000,
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'BrainrotMonitor/1.0'
+      }
+    });
+
+    config.stats.successfulJoins++;
+    await saveConfig();
+    
+    console.log(`✅ Autojoin executado com sucesso: ${jobId}`);
+    return { success: true, data: response.data };
+  } catch (error) {
+    console.error(`❌ Erro no autojoin ${jobId}:`, error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+// Simular captura de notificação do Brainrot Notify
+function simulateNotification() {
+  const notifications = [
+    {
+      name: "La Grande Combinasion",
+      moneyPerSec: "$30M/s",
+      players: "6/8",
+      jobIds: {
+        mobile: "91RA2DNRtfkIGH2K4NOL48FNGjappgxqBHwsfOwQYtxL2DFVT4NDXWNWZINqtD0DaOGirkSKDplUBbtE7HElDE1TCEuLHbuQ",
+        ios: "91RA2DNRtfkIGH2K4NOL48FNGjappgxqBHwsfOwQYtxL2DFVT4NDXWNWZINqtD0DaOGirkSKDplUBbtE7HElDE1TCEuLHbuQ",
+        pc: "91RA2DNRtfkIGH2K4NOL48FNGjappgxqBHwsfOwQYtxL2DFVT4NDXWNWZINqtD0DaOGirkSKDplUBbtE7HElDE1TCEuLHbuQ"
+      },
+      timestamp: new Date().toISOString()
+    }
+  ];
+  
+  return notifications[Math.floor(Math.random() * notifications.length)];
+}
+
+// Processar notificação recebida
+async function processNotification(notification) {
+  console.log(`📨 Nova notificação: ${notification.name} - ${notification.moneyPerSec} - ${notification.players}`);
+  
+  // Adicionar à lista de notificações
+  config.notifications.unshift({
+    ...notification,
+    id: Date.now().toString(),
+    processed: false
+  });
+  
+  // Manter apenas as últimas 50 notificações
+  if (config.notifications.length > 50) {
+    config.notifications = config.notifications.slice(0, 50);
+  }
+  
+  config.stats.totalNotifications++;
+  
+  // Verificar se deve fazer autojoin
+  if (shouldAutojoin(notification)) {
+    console.log(`🎯 Notificação atende aos critérios! Executando autojoin...`);
+    
+    config.stats.autojoinsAttempted++;
+    
+    // Tentar autojoin em todas as plataformas disponíveis
+    const results = [];
+    for (const [platform, jobId] of Object.entries(notification.jobIds)) {
+      if (jobId) {
+        const result = await executeAutojoin(jobId, platform);
+        results.push({ platform, ...result });
+        
+        if (result.success) break; // Se um deu certo, para
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Aguarda 1s entre tentativas
+      }
     }
     
-    console.log(`\n🚀 Sistema pronto para AutoJoin Ultra!`);
+    // Marcar notificação como processada
+    const notificationIndex = config.notifications.findIndex(n => n.id === notification.id);
+    if (notificationIndex !== -1) {
+      config.notifications[notificationIndex].processed = true;
+      config.notifications[notificationIndex].autojoinResults = results;
+    }
+  }
+  
+  await saveConfig();
+}
+
+// Monitor simulado (você deve substituir por captura real)
+let monitorInterval;
+
+function startMonitoring() {
+  if (monitorInterval) return;
+  
+  console.log('🔍 Iniciando monitoramento...');
+  
+  monitorInterval = setInterval(() => {
+    if (config.enabled) {
+      // Simular recebimento de notificação (substitua por captura real)
+      if (Math.random() < 0.1) { // 10% de chance por verificação
+        const notification = simulateNotification();
+        processNotification(notification);
+      }
+    }
+  }, config.monitorInterval);
+}
+
+function stopMonitoring() {
+  if (monitorInterval) {
+    clearInterval(monitorInterval);
+    monitorInterval = null;
+    console.log('⏹️ Monitoramento parado');
+  }
+}
+
+// Rotas da API
+
+// Status do sistema
+app.get('/api/status', (req, res) => {
+  res.json({
+    enabled: config.enabled,
+    monitoring: !!monitorInterval,
+    stats: config.stats,
+    uptime: process.uptime(),
+    lastNotification: config.notifications[0] || null
+  });
 });
+
+// Configurações
+app.get('/api/config', (req, res) => {
+  res.json(config);
+});
+
+// Atualizar configurações
+app.put('/api/config', (req, res) => {
+  Object.assign(config, req.body);
+  saveConfig();
+  res.json({ message: 'Configurações atualizadas', config });
+});
+
+// Listar notificações
+app.get('/api/notifications', (req, res) => {
+  const { limit = 20, processed } = req.query;
+  let notifications = config.notifications;
+  
+  if (processed !== undefined) {
+    notifications = notifications.filter(n => n.processed === (processed === 'true'));
+  }
+  
+  res.json(notifications.slice(0, parseInt(limit)));
+});
+
+// Controlar monitoramento
+app.post('/api/monitor/toggle', (req, res) => {
+  config.enabled = !config.enabled;
+  
+  if (config.enabled) {
+    startMonitoring();
+  } else {
+    stopMonitoring();
+  }
+  
+  saveConfig();
+  res.json({ 
+    message: `Monitoramento ${config.enabled ? 'ativado' : 'desativado'}`,
+    enabled: config.enabled 
+  });
+});
+
+// Executar autojoin manual
+app.post('/api/autojoin/manual', async (req, res) => {
+  const { jobId, platform = 'mobile' } = req.body;
+  
+  if (!jobId) {
+    return res.status(400).json({ error: 'Job ID é obrigatório' });
+  }
+  
+  const result = await executeAutojoin(jobId, platform);
+  res.json(result);
+});
+
+// Simular notificação para teste
+app.post('/api/test/notification', async (req, res) => {
+  const notification = req.body.notification || simulateNotification();
+  await processNotification(notification);
+  res.json({ message: 'Notificação de teste processada', notification });
+});
+
+// Limpar notificações
+app.delete('/api/notifications', (req, res) => {
+  config.notifications = [];
+  config.stats = {
+    totalNotifications: 0,
+    autojoinsAttempted: 0,
+    successfulJoins: 0
+  };
+  saveConfig();
+  res.json({ message: 'Notificações limpas' });
+});
+
+// Interface web
+app.get('/', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Brainrot Notify Monitor</title>
+        <meta charset="utf-8">
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; background: #1a1a1a; color: #fff; }
+            .container { max-width: 1200px; margin: 0 auto; }
+            .status { background: #2d2d2d; padding: 15px; border-radius: 8px; margin: 10px 0; }
+            .notification { background: #333; padding: 10px; margin: 5px 0; border-radius: 5px; }
+            .success { color: #4CAF50; }
+            .error { color: #f44336; }
+            .warning { color: #ff9800; }
+            button { background: #007bff; color: white; border: none; padding: 10px 15px; margin: 5px; border-radius: 5px; cursor: pointer; }
+            button:hover { background: #0056b3; }
+            .stats { display: flex; gap: 20px; }
+            .stat-box { background: #2d2d2d; padding: 15px; border-radius: 8px; text-align: center; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🤖 Brainrot Notify Monitor</h1>
+            
+            <div class="status" id="status">
+                <h3>Status: <span id="statusText">Carregando...</span></h3>
+                <button onclick="toggleMonitor()">Toggle Monitor</button>
+                <button onclick="testNotification()">Testar Notificação</button>
+                <button onclick="clearNotifications()">Limpar Dados</button>
+            </div>
+            
+            <div class="stats" id="stats">
+                <div class="stat-box">
+                    <h4>Total Notificações</h4>
+                    <span id="totalNotifications">0</span>
+                </div>
+                <div class="stat-box">
+                    <h4>Autojoins Tentados</h4>
+                    <span id="autojoinsAttempted">0</span>
+                </div>
+                <div class="stat-box">
+                    <h4>Sucessos</h4>
+                    <span id="successfulJoins">0</span>
+                </div>
+            </div>
+            
+            <h3>Últimas Notificações</h3>
+            <div id="notifications"></div>
+        </div>
+
+        <script>
+            let statusData = {};
+            
+            async function updateStatus() {
+                try {
+                    const response = await fetch('/api/status');
+                    statusData = await response.json();
+                    
+                    document.getElementById('statusText').textContent = 
+                        statusData.enabled ? 'ATIVO' : 'INATIVO';
+                    document.getElementById('statusText').className = 
+                        statusData.enabled ? 'success' : 'error';
+                    
+                    document.getElementById('totalNotifications').textContent = statusData.stats.totalNotifications;
+                    document.getElementById('autojoinsAttempted').textContent = statusData.stats.autojoinsAttempted;
+                    document.getElementById('successfulJoins').textContent = statusData.stats.successfulJoins;
+                    
+                } catch (error) {
+                    console.error('Erro ao atualizar status:', error);
+                }
+            }
+            
+            async function updateNotifications() {
+                try {
+                    const response = await fetch('/api/notifications?limit=10');
+                    const notifications = await response.json();
+                    
+                    const container = document.getElementById('notifications');
+                    container.innerHTML = '';
+                    
+                    notifications.forEach(notification => {
+                        const div = document.createElement('div');
+                        div.className = 'notification';
+                        div.innerHTML = \`
+                            <strong>\${notification.name}</strong> - 
+                            \${notification.moneyPerSec} - 
+                            \${notification.players} players
+                            <br>
+                            <small>
+                                \${new Date(notification.timestamp).toLocaleString()} - 
+                                \${notification.processed ? '<span class="success">Processado</span>' : '<span class="warning">Pendente</span>'}
+                            </small>
+                        \`;
+                        container.appendChild(div);
+                    });
+                    
+                } catch (error) {
+                    console.error('Erro ao atualizar notificações:', error);
+                }
+            }
+            
+            async function toggleMonitor() {
+                try {
+                    await fetch('/api/monitor/toggle', { method: 'POST' });
+                    updateStatus();
+                } catch (error) {
+                    console.error('Erro ao alternar monitor:', error);
+                }
+            }
+            
+            async function testNotification() {
+                try {
+                    await fetch('/api/test/notification', { method: 'POST' });
+                    setTimeout(() => {
+                        updateStatus();
+                        updateNotifications();
+                    }, 1000);
+                } catch (error) {
+                    console.error('Erro ao testar notificação:', error);
+                }
+            }
+            
+            async function clearNotifications() {
+                if (confirm('Limpar todas as notificações e estatísticas?')) {
+                    try {
+                        await fetch('/api/notifications', { method: 'DELETE' });
+                        updateStatus();
+                        updateNotifications();
+                    } catch (error) {
+                        console.error('Erro ao limpar notificações:', error);
+                    }
+                }
+            }
+            
+            // Atualizar a cada 5 segundos
+            setInterval(() => {
+                updateStatus();
+                updateNotifications();
+            }, 5000);
+            
+            // Carregar dados iniciais
+            updateStatus();
+            updateNotifications();
+        </script>
+    </body>
+    </html>
+  `);
+});
+
+// Inicializar servidor
+async function startServer() {
+  await loadConfig();
+  
+  app.listen(PORT, () => {
+    console.log(`🚀 Brainrot Monitor rodando na porta ${PORT}`);
+    console.log(`📊 Acesse http://localhost:${PORT} para ver o painel`);
+    console.log(`🎯 API Autojoin: ${config.autojoinApiUrl}`);
+    
+    if (config.enabled) {
+      startMonitoring();
+    }
+  });
+}
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('\n🛑 Recebido SIGTERM, desligando graciosamente...');
-    process.exit(0);
-});
-
 process.on('SIGINT', () => {
-    console.log('\n🛑 Recebido SIGINT, desligando graciosamente...');
+  console.log('\n🛑 Parando servidor...');
+  stopMonitoring();
+  saveConfig().then(() => {
     process.exit(0);
+  });
 });
 
-// Error handling global
-process.on('uncaughtException', (error) => {
-    console.error('❌ Uncaught Exception:', error);
-    metrics.errors++;
-});
-
-process.on('unhandledRejection', (error) => {
-    console.error('❌ Unhandled Rejection:', error);
-    metrics.errors++;
-});
+startServer().catch(console.error);
