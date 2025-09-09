@@ -1,37 +1,38 @@
-// server.js
 const express = require('express');
 const cors = require('cors');
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
 
-let petsData = []; // Lista dinâmica
-
-// GET /pets - retorna os job_ids
-app.get('/pets', (req, res) => {
-    res.json(petsData);
-});
-
-// POST /pets - adiciona novo job_id
-app.post('/pets', (req, res) => {
-    const { name, job_ids } = req.body;
-
-    if (!name || !Array.isArray(job_ids)) {
-        return res.status(400).json({ error: 'Formato inválido. Esperado: { name, job_ids[] }' });
+let pets = [
+    {
+        name: "Pet 1",
+        job_ids: ["1234567890abcdef1234567890abcdef"]
+    },
+    {
+        name: "Pet 2",
+        job_ids: ["abcdefabcdefabcdefabcdefabcdefab"]
     }
+];
 
-    petsData.push({ name, job_ids });
-    res.status(201).json({ message: 'Job ID adicionado com sucesso' });
+// [GET] Retorna os pets com job_ids
+app.get('/pets', (req, res) => {
+    res.json(pets);
 });
 
-// GET /test - keep alive
-app.get('/test', (req, res) => {
-    res.send('API Online');
+// [POST] Adiciona um novo pet (opcional)
+app.post('/pets', (req, res) => {
+    const pet = req.body;
+    if (!pet || !pet.job_ids || !Array.isArray(pet.job_ids)) {
+        return res.status(400).json({ error: "Pet inválido" });
+    }
+    pets.push(pet);
+    res.json({ status: "Pet adicionado com sucesso!" });
 });
 
+// Iniciar o servidor
 app.listen(PORT, () => {
-    console.log(`🚀 API rodando na porta ${PORT}`);
+    console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
