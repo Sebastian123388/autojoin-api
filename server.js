@@ -163,12 +163,13 @@ async function initializeDiscordBot() {
             console.log('='.repeat(50));
         });
 
-        // PROCESSAMENTO INSTANTÂNEO de mensagens
+        // PROCESSAMENTO INSTANTÂNEO de mensagens - SEM FILTROS
         discordBot.on('messageCreate', async (message) => {
             console.log(`⚡ MENSAGEM RECEBIDA:`);
             console.log(`   Canal: ${message.channel.name} (${message.channel.id})`);
             console.log(`   Autor: ${message.author.username} (Bot: ${message.author.bot})`);
             console.log(`   Tamanho: ${message.content.length} chars`);
+            console.log(`   Conteúdo: "${message.content}"`);
 
             // Verifica canal específico (se configurado)
             if (DISCORD_CONFIG.CHANNEL_ID && message.channel.id !== DISCORD_CONFIG.CHANNEL_ID) {
@@ -176,21 +177,13 @@ async function initializeDiscordBot() {
                 return;
             }
 
-            // ACEITA TODAS AS MENSAGENS - incluindo bots (ESPECIALMENTE Brainrot Notify)
-            if (message.author.bot) {
-                console.log(`🤖 BOT DETECTADO: ${message.author.username} - PROCESSANDO PRIORITARIAMENTE!`);
-            }
+            // PROCESSA ABSOLUTAMENTE TODAS AS MENSAGENS - sem exceções
+            console.log(`✅ PROCESSANDO TODAS AS MENSAGENS - ZERO FILTROS!`);
 
-            if (!message.content || message.content.length < 5) {
-                console.log(`⏭️ Mensagem muito curta - ignorando`);
+            // Verifica se tem conteúdo válido (qualquer conteúdo)
+            if (!message.content) {
+                console.log(`⚠️ Mensagem sem conteúdo de texto - pulando`);
                 return;
-            }
-
-            // FOCO NO BRAINROT NOTIFY
-            if (message.author.username.toLowerCase().includes('brainrot') || 
-                message.author.username.toLowerCase().includes('notify') ||
-                message.content.includes('Job ID')) {
-                console.log(`🎯 BRAINROT NOTIFY DETECTADO! Processando com prioridade máxima!`);
             }
 
             console.log(`✅ PROCESSANDO MENSAGEM...`);
