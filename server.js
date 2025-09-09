@@ -381,25 +381,21 @@ if (process.env.RENDER_SERVICE_NAME) {
 // Inicialização
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`🚀 Ghost AutoJoin Backend v4.0 - REAL TIME - Porta ${PORT}`);
-    console.log(`⚡ MODO: SEM CACHE - DADOS SEMPRE FRESCOS`);
-    console.log(`🎯 Endpoints:`);
-    console.log(`   • GET  /pets     - Dados em tempo real`);
-    console.log(`   • GET  /health   - Status do sistema`);
-    console.log(`   • GET  /debug    - Debug em tempo real`);
-    console.log(`   • GET  /keepalive - Keep-alive`);
+    console.log(`🚀 Ghost AutoJoin Backend v5.0 - ULTRA FRESH - Porta ${PORT}`);
+    console.log(`⚡ MODO: DADOS NA HORA - MÁXIMO ${MAX_AGE/1000} SEGUNDOS`);
+    console.log(`🎯 Endpoint principal: GET /pets`);
     
-    console.log(`⚡ Configurações RÁPIDAS:`);
-    console.log(`   • Idade máxima: ${MAX_AGE/1000}s (APENAS DADOS FRESCOS)`);
-    console.log(`   • Mensagens: ${MAX_MESSAGES}`);
-    console.log(`   • Timeout: 5s`);
-    console.log(`   • Padrões: ${JOB_ID_PATTERNS.length}`);
+    console.log(`⚡ Configurações ULTRA RÁPIDAS:`);
+    console.log(`   • Idade máxima: ${MAX_AGE/1000}s (NA HORA MESMO!)`);
+    console.log(`   • Mensagens: ${MAX_MESSAGES} (mínimo necessário)`);
+    console.log(`   • Timeout: 3s (ultra rápido)`);
+    console.log(`   • Rate limit: 500 req/10s (sem limites)`);
     
     if (!DISCORD_TOKEN || !CHANNEL_ID) {
         console.warn('⚠️  CONFIGURE: DISCORD_TOKEN e CHANNEL_ID!');
         serverHealth.status = 'configuration_error';
     } else {
-        console.log('✅ Configuração OK - Sistema REAL TIME operacional!');
-        serverHealth.status = 'healthy';
+        console.log('✅ Sistema ULTRA FRESH operacional - DADOS NA HORA!');
+        serverHealth.status = 'ultra-healthy';
     }
 });
