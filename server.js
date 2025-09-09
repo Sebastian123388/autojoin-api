@@ -423,6 +423,12 @@ app.listen(PORT, async () => {
     
     if (discordSuccess) {
         console.log('✅ Bot Discord inicializado com sucesso');
+        
+        // Heartbeat para mostrar que está vivo
+        setInterval(() => {
+            console.log(`💓 Bot heartbeat: ${new Date().toLocaleTimeString()} - Mensagens processadas: ${botStats.messagesProcessed}`);
+        }, 60000); // A cada 1 minuto
+        
     } else {
         console.log('❌ Bot Discord não pôde ser inicializado - verifique o token');
     }
