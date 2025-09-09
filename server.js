@@ -88,6 +88,49 @@ function isJobMessage(message) {
     return hasJobId && hasMoneyOrPlayers;
 }
 
+// Função para verificar se tem Job ID do PC
+function hasPCJobID(message) {
+    const content = message.content;
+    const embedContent = message.embeds?.[0]?.description || '';
+    const fullContent = content + ' ' + embedContent;
+    
+    return fullContent.includes('Job ID (PC)');
+}
+
+// Função para extrair Job ID do PC
+function extractPCJobID(content) {
+    const jobInfo = {
+        timestamp: new Date().toISOString(),
+        raw: content
+    };
+    
+    try {
+        // Extrair nome do servidor
+        const nameMatch = content.match(/💰\s*Name[:\s]*([^\n]+)/i) || 
+                         content.match(/Name[:\s]*([^\n]+)/i);
+        if (nameMatch) jobInfo.serverName = nameMatch[1].trim();
+        
+        // Extrair dinheiro por segundo
+        const moneyMatch = content.match(/💰\s*Money per sec[:\s]*([^\n]+)/i) ||
+                          content.match(/Money per sec[:\s]*([^\n]+)/i);
+        if (moneyMatch) jobInfo.moneyPerSec = moneyMatch[1].trim();
+        
+        // Extrair players
+        const playersMatch = content.match(/💎\s*Players[:\s]*([^\n]+)/i) ||
+                            content.match(/Players[:\s]*([^\n]+)/i);
+        if (playersMatch) jobInfo.players = playersMatch[1].trim();
+        
+        // Extrair Job ID do PC
+        const pcMatch = content.match(/Job ID \(PC\)[:\s]*([^\n]+)/i);
+        if (pcMatch) jobInfo.jobIdPC = pcMatch[1].trim();
+        
+    } catch (error) {
+        console.error('❌ Erro ao extrair Job ID do PC:', error);
+    }
+    
+    return jobInfo;
+}
+
 // Event: Bot pronto
 client.once('ready', () => {
     console.log('═══════════════════════════════════════');
@@ -96,6 +139,7 @@ client.once('ready', () => {
     console.log(`📺 Canal: ${DISCORD_CHANNEL_ID}`);
     console.log(`🎮 Place ID: ${PLACE_ID}`);
     console.log(`🔥 Modo: REAL TIME MONITORING`);
+    console.log('⚠️  MONITORANDO BOTS E USUÁRIOS');
     console.log('═══════════════════════════════════════');
     
     botStatus.online = true;
@@ -112,14 +156,17 @@ client.on('messageCreate', async (message) => {
         console.log(`   📝 Conteúdo: ${message.content.substring(0, 100)}...`);
         console.log(`   📎 Embeds: ${message.embeds.length}`);
         
-        // Filtro: Ignora bots (EXCETO Mirror Bot do Chilli Hub)
-        if (message.author.bot && !message.author.username.includes('Mirror Bot')) {
-            console.log(`❌ Ignorando bot: ${message.author.username}`);
-            return;
-        }
+        // ❌ REMOVIDO: Filtro que ignorava bots
+        // if (message.author.bot) {
+        //     console.log(`❌ Ignorando bot: ${message.author.username}`);
+        //     return;
+        // }
         
+        // Agora aceita mensagens de bots E usuários
         if (message.author.bot) {
-            console.log(`🤖 Processando Mirror Bot: ${message.author.username}`);
+            console.log(`🤖 Processando mensagem de bot: ${message.author.username}`);
+        } else {
+            console.log(`👤 Processando mensagem de usuário: ${message.author.username}`);
         }
         
         // Filtro: Verifica canal
