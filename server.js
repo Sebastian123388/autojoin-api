@@ -206,12 +206,24 @@ function initializeKnownJobIds() {
 
 // === ROTAS DA API ===
 
-app.get('/pets', (req, res) => {
+// Endpoint ULTRA RÁPIDO para JobIds frescos
+app.get('/pets/fresh', (req, res) => {
     try {
-        const sortedPets = pets.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-        res.json(sortedPets);
+        // Retorna APENAS os pets mais frescos (sem cache)
+        const freshPets = pets.filter(p => p.fresh || p.source === 'discord')
+                              .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                              .slice(0, 3); // Só os 3 mais recentes
+        
+        // Headers para ZERO cache
+        res.set({
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+        });
+        
+        res.json(freshPets);
     } catch (error) {
-        res.status(500).json({ error: 'Erro ao buscar pets' });
+        res.status(500).json({ error: 'Erro ao buscar pets frescos' });
     }
 });
 
