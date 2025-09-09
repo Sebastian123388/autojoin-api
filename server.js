@@ -268,7 +268,57 @@ app.post('/api/monitor/toggle', (req, res) => {
   });
 });
 
-// Executar autojoin manual
+// Testar conectividade da API
+app.get('/api/test-endpoints', async (req, res) => {
+  const endpoints = [
+    'https://autojoin-api.onrender.com/pets',
+    'https://autojoin-api.onrender.com/pet',
+    'https://autojoin-api.onrender.com/autojoin',
+    'https://autojoin-api.onrender.com/join',
+    'https://autojoin-api.onrender.com/'
+  ];
+  
+  const results = [];
+  
+  for (const endpoint of endpoints) {
+    try {
+      // Testar GET
+      try {
+        const getResponse = await axios.get(endpoint, { timeout: 5000 });
+        results.push({ endpoint, method: 'GET', status: getResponse.status, success: true });
+      } catch (getError) {
+        results.push({ 
+          endpoint, 
+          method: 'GET', 
+          status: getError.response?.status || 0, 
+          success: false,
+          error: getError.message 
+        });
+      }
+      
+      // Testar POST
+      try {
+        const postResponse = await axios.post(endpoint, { test: true }, { 
+          timeout: 5000,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        results.push({ endpoint, method: 'POST', status: postResponse.status, success: true });
+      } catch (postError) {
+        results.push({ 
+          endpoint, 
+          method: 'POST', 
+          status: postError.response?.status || 0, 
+          success: false,
+          error: postError.message 
+        });
+      }
+    } catch (error) {
+      results.push({ endpoint, method: 'BOTH', success: false, error: error.message });
+    }
+  }
+  
+  res.json({ results });
+});
 app.post('/api/autojoin/manual', async (req, res) => {
   const { jobId, platform = 'mobile' } = req.body;
   
@@ -334,11 +384,11 @@ app.get('/', (req, res) => {
             
             <div class="stats" id="stats">
                 <div class="stat-box">
-                    <h4>Total Notificações</h4>
+                    <h4>Total Job IDs</h4>
                     <span id="totalNotifications">0</span>
                 </div>
                 <div class="stat-box">
-                    <h4>Autojoins Tentados</h4>
+                    <h4>Autojoins Executados</h4>
                     <span id="autojoinsAttempted">0</span>
                 </div>
                 <div class="stat-box">
@@ -347,7 +397,7 @@ app.get('/', (req, res) => {
                 </div>
             </div>
             
-            <h3>Últimas Notificações</h3>
+            <h3>Últimos Job IDs Capturados</h3>
             <div id="notifications"></div>
         </div>
 
