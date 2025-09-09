@@ -65,12 +65,13 @@ function getNewestJobId(messages) {
             
             // Filtro básico
             if (!/^\d+$/.test(jobId) && !jobId.toLowerCase().includes('undefined')) {
-                return {
-                    job_id: jobId,
-                    author: message.author.username,
-                    age_ms: Math.floor(messageAge),
-                    timestamp: message.timestamp
-                };
+                    return {
+                        job_id: jobId,
+                        author: message.author.username,
+                        age_ms: Math.floor(messageAge),
+                        timestamp: message.timestamp
+                    };
+                }
             }
         }
     }
