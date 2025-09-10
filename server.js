@@ -1,20 +1,21 @@
+// server.js - Bot Monitor do Chilli Hub
 const express = require('express');
 const { Client, GatewayIntentBits } = require('discord.js');
 
 // Configuração do Express
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(express.json());
 
 // Configuração do Discord Bot
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
-    ]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
 });
 
 // Variáveis de ambiente
@@ -24,117 +25,155 @@ const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
 // Estado do bot
 let botStatus = {
-    online: false,
-    jobsDetected: 0,
-    lastJobDetected: null,
-    startTime: new Date()
+  online: false,
+  monitoring: false,
+  lastJobDetected: null,
+  jobsDetected: 0,
+  startTime: new Date()
 };
 
-// Função para extrair um Job ID da mensagem (primeiro que encontrar)
-function extractFirstJobID(content) {
-    // Tenta achar formatos diferentes de job id (ex: base64, uuid, etc)
-    const jobIdPatterns = [
-        /[A-Za-z0-9+/]{20,}={0,2}/g,  // Base64-like (ajustar se quiser mais rigoroso)
-        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i  // UUID
-    ];
+// Função para extrair todo texto dos embeds
+function getFullEmbedContent(message) {
+  if (!message.embeds.length) return '';
 
-    for (const pattern of jobIdPatterns) {
-        const match = content.match(pattern);
-        if (match && match.length > 0) {
-            return match[0];
-        }
+  return message.embeds.map(embed => {
+    let text = '';
+
+    if (embed.title) text += embed.title + '\n';
+    if (embed.description) text += embed.description + '\n';
+
+    if (embed.fields && embed.fields.length > 0) {
+      embed.fields.forEach(field => {
+        text += field.name + ': ' + field.value + '\n';
+      });
     }
 
-    return null;
+    return text;
+  }).join('\n');
 }
 
 // Evento: Bot pronto
 client.once('clientReady', () => {
-    console.log('🤖 Bot online e pronto!');
-    botStatus.online = true;
+  console.log('═══════════════════════════════════════');
+  console.log('🤖 BOT ONLINE - CHILLI HUB MONITOR');
+  console.log(`📱 Bot: ${client.user.tag}`);
+  console.log(`📺 Canal: ${DISCORD_CHANNEL_ID}`);
+  console.log(`🎮 Place ID: ${PLACE_ID}`);
+  console.log(`🔥 Modo: LEVE - SOMENTE JOB ID`);
+  console.log('═══════════════════════════════════════');
+
+  botStatus.online = true;
+  botStatus.monitoring = true;
 });
 
-// Monitoramento de mensagens
+// Listener de mensagens
 client.on('messageCreate', async (message) => {
-    try {
-        // Só processa mensagens do canal correto
-        if (message.channel.id !== DISCORD_CHANNEL_ID) return;
+  try {
+    // Aceitar mensagens de bots e usuários (não ignorar bots)
 
-        // Ignora mensagens de outros bots, mas NÃO ignora as do próprio bot
-        if (message.author.bot && message.author.id !== client.user.id) return;
+    // Verifica canal correto
+    if (message.channel.id !== DISCORD_CHANNEL_ID) return;
 
-        // Conteúdo a analisar: texto puro + descrição do embed se tiver
-        let content = message.content;
-        if (message.embeds.length > 0) {
-            const embed = message.embeds[0];
-            if (embed.description) content += ' ' + embed.description;
-        }
+    // Conteúdo completo: mensagem + embeds
+    const fullText = message.content + '\n' + getFullEmbedContent(message);
 
-        // Extrai o primeiro Job ID válido encontrado
-        const jobId = extractFirstJobID(content);
-        if (!jobId) return; // Nenhum Job ID encontrado, ignora
+    // Regex para capturar Job ID - combina os tipos que você mostrou
+    // UUID padrão e string alfanumérica com símbolos usados
+    const jobIdRegex = /([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[A-Za-z0-9+/=]{16,64})/g;
 
-        botStatus.jobsDetected++;
-        botStatus.lastJobDetected = { jobId, timestamp: new Date().toISOString() };
+    const matches = [...fullText.matchAll(jobIdRegex)];
 
-        console.log(`Job ID detectado: ${jobId}`);
-        console.log(`Mensagem de: ${message.author.username}`);
-        console.log(`Canal: ${message.channel.id}`);
+    if (matches.length > 0) {
+      const jobId = matches[0][0];
+      console.log(`✅ Job ID detectado: ${jobId}`);
 
-        // Se quiser, pode montar e mostrar o link direto
-        const gameUrl = `https://www.roblox.com/games/${PLACE_ID}?jobId=${jobId}`;
-        console.log(`Link do jogo: ${gameUrl}`);
+      botStatus.jobsDetected++;
+      botStatus.lastJobDetected = {
+        jobId,
+        timestamp: new Date().toISOString()
+      };
 
-    } catch (error) {
-        console.error('Erro ao processar mensagem:', error);
+      console.log(`🎮 Link do jogo: https://www.roblox.com/games/${PLACE_ID}?jobId=${jobId}`);
+
+    } else {
+      console.log('❌ Nenhum Job ID encontrado nessa mensagem');
     }
+
+  } catch (error) {
+    console.error('❌ Erro ao processar mensagem:', error);
+  }
 });
 
-// Rotas básicas da API
+// Evento: Erro do bot
+client.on('error', (error) => {
+  console.error('❌ Erro do Discord Bot:', error);
+  botStatus.online = false;
+});
+
+// Evento: Reconexão
+client.on('reconnecting', () => {
+  console.log('🔄 Reconectando ao Discord...');
+});
+
+// Rotas da API
 app.get('/', (req, res) => {
-    res.json({
-        status: 'online',
-        botStatus,
-        uptimeSeconds: Math.floor((Date.now() - botStatus.startTime) / 1000),
-        version: '1.1.0'
-    });
+  res.json({
+    status: 'online',
+    service: 'Chilli Hub Monitor',
+    bot: botStatus,
+    uptime: Math.floor((Date.now() - botStatus.startTime) / 1000),
+    version: '1.0.0'
+  });
 });
 
 app.get('/status', (req, res) => {
-    res.json(botStatus);
+  res.json(botStatus);
 });
 
 app.get('/last-job', (req, res) => {
-    res.json({
-        lastJob: botStatus.lastJobDetected,
-        totalJobs: botStatus.jobsDetected
-    });
+  res.json({
+    lastJob: botStatus.lastJobDetected,
+    totalJobs: botStatus.jobsDetected
+  });
 });
 
-// Inicia servidor HTTP
+app.post('/test', (req, res) => {
+  res.json({
+    message: 'Bot está funcionando!',
+    channelMonitoring: DISCORD_CHANNEL_ID,
+    placeId: PLACE_ID,
+    botOnline: botStatus.online
+  });
+});
+
+// Iniciar servidor HTTP
 app.listen(PORT, () => {
-    console.log(`Servidor HTTP rodando na porta ${PORT}`);
-    console.log(`URL: https://autojoin-api.onrender.com`);
+  console.log(`🌐 Servidor HTTP rodando na porta ${PORT}`);
+  console.log(`🔗 URL: https://autojoin-api.onrender.com`);
 });
 
 // Login do bot Discord
 if (BOT_TOKEN) {
-    client.login(BOT_TOKEN)
-        .then(() => console.log('Bot logado com sucesso!'))
-        .catch(err => console.error('Erro no login do bot:', err));
+  client.login(BOT_TOKEN)
+    .then(() => {
+      console.log('✅ Bot logado com sucesso!');
+    })
+    .catch(error => {
+      console.error('❌ Erro ao fazer login:', error);
+    });
 } else {
-    console.error('Token do bot não encontrado!');
+  console.error('❌ Token do bot não encontrado!');
 }
 
 // Tratamento de encerramento
 process.on('SIGTERM', () => {
-    console.log('Encerrando aplicação...');
-    client.destroy();
-    process.exit(0);
+  console.log('🛑 Encerrando aplicação...');
+  client.destroy();
+  process.exit(0);
 });
 
 process.on('SIGINT', () => {
-    console.log('Encerrando aplicação...');
-    client.destroy();
-    process.exit(0);
+  console.log('🛑 Encerrando aplicação...');
+  client.destroy();
+  process.exit(0);
 });
