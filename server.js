@@ -1,130 +1,140 @@
 const express = require('express');
 const { Client, GatewayIntentBits } = require('discord.js');
 
+// Configuração do Express
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
+// Middleware
 app.use(express.json());
 
+// Configuração do Discord Bot
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
+    ]
 });
 
+// Variáveis de ambiente
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 const PLACE_ID = process.env.PLACE_ID;
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
+// Estado do bot
 let botStatus = {
-  online: false,
-  jobsDetected: 0,
-  lastJobDetected: null,
-  startTime: new Date()
+    online: false,
+    jobsDetected: 0,
+    lastJobDetected: null,
+    startTime: new Date()
 };
 
-function extractSingleJobID(text) {
-  if (!text) return null;
+// Função para extrair um Job ID da mensagem (primeiro que encontrar)
+function extractFirstJobID(content) {
+    // Tenta achar formatos diferentes de job id (ex: base64, uuid, etc)
+    const jobIdPatterns = [
+        /[A-Za-z0-9+/]{20,}={0,2}/g,  // Base64-like (ajustar se quiser mais rigoroso)
+        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i  // UUID
+    ];
 
-  const regexes = [
-    /Job ID \(PC\)[:\s]*([A-Za-z0-9\-+/=]+)/i,
-    /([A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12})/,
-    /([A-Za-z0-9+/=]{20,})/
-  ];
-
-  for (const regex of regexes) {
-    const match = text.match(regex);
-    if (match && match[1]) {
-      return match[1].trim();
+    for (const pattern of jobIdPatterns) {
+        const match = content.match(pattern);
+        if (match && match.length > 0) {
+            return match[0];
+        }
     }
-  }
 
-  return null;
+    return null;
 }
 
+// Evento: Bot pronto
 client.once('clientReady', () => {
-  console.log(`🤖 Bot ${client.user.tag} online, monitorando canal ${DISCORD_CHANNEL_ID}`);
-  botStatus.online = true;
+    console.log('🤖 Bot online e pronto!');
+    botStatus.online = true;
 });
 
+// Monitoramento de mensagens
 client.on('messageCreate', async (message) => {
-  if (message.channel.id !== DISCORD_CHANNEL_ID) return;
+    try {
+        // Só processa mensagens do canal correto
+        if (message.channel.id !== DISCORD_CHANNEL_ID) return;
 
-  let content = message.content;
-  if (message.embeds.length > 0) {
-    const embed = message.embeds[0];
-    content = embed.description || embed.title || content;
-  }
+        // Ignora mensagens de outros bots, mas NÃO ignora as do próprio bot
+        if (message.author.bot && message.author.id !== client.user.id) return;
 
-  const jobId = extractSingleJobID(content);
+        // Conteúdo a analisar: texto puro + descrição do embed se tiver
+        let content = message.content;
+        if (message.embeds.length > 0) {
+            const embed = message.embeds[0];
+            if (embed.description) content += ' ' + embed.description;
+        }
 
-  if (jobId) {
-    botStatus.jobsDetected++;
-    botStatus.lastJobDetected = { jobId, timestamp: new Date().toISOString() };
-    console.log('🎯 Job ID detectado:', jobId);
-    const gameUrl = `https://www.roblox.com/games/${PLACE_ID}?jobId=${jobId}`;
-    console.log('🎮 Link:', gameUrl);
-  }
+        // Extrai o primeiro Job ID válido encontrado
+        const jobId = extractFirstJobID(content);
+        if (!jobId) return; // Nenhum Job ID encontrado, ignora
+
+        botStatus.jobsDetected++;
+        botStatus.lastJobDetected = { jobId, timestamp: new Date().toISOString() };
+
+        console.log(`Job ID detectado: ${jobId}`);
+        console.log(`Mensagem de: ${message.author.username}`);
+        console.log(`Canal: ${message.channel.id}`);
+
+        // Se quiser, pode montar e mostrar o link direto
+        const gameUrl = `https://www.roblox.com/games/${PLACE_ID}?jobId=${jobId}`;
+        console.log(`Link do jogo: ${gameUrl}`);
+
+    } catch (error) {
+        console.error('Erro ao processar mensagem:', error);
+    }
 });
 
-client.on('error', (err) => {
-  console.error('❌ Discord Bot Error:', err);
-  botStatus.online = false;
-});
-
-client.on('reconnecting', () => {
-  console.log('🔄 Reconectando ao Discord...');
-});
-
+// Rotas básicas da API
 app.get('/', (req, res) => {
-  res.json({
-    status: 'online',
-    bot: botStatus,
-    uptime: Math.floor((Date.now() - botStatus.startTime) / 1000),
-    version: '1.0.0'
-  });
+    res.json({
+        status: 'online',
+        botStatus,
+        uptimeSeconds: Math.floor((Date.now() - botStatus.startTime) / 1000),
+        version: '1.1.0'
+    });
 });
 
-app.get('/status', (req, res) => res.json(botStatus));
+app.get('/status', (req, res) => {
+    res.json(botStatus);
+});
 
 app.get('/last-job', (req, res) => {
-  res.json({
-    lastJob: botStatus.lastJobDetected,
-    totalJobs: botStatus.jobsDetected
-  });
+    res.json({
+        lastJob: botStatus.lastJobDetected,
+        totalJobs: botStatus.jobsDetected
+    });
 });
 
-app.post('/test', (req, res) => {
-  res.json({
-    message: 'Bot está funcionando!',
-    channelMonitoring: DISCORD_CHANNEL_ID,
-    placeId: PLACE_ID,
-    botOnline: botStatus.online
-  });
-});
-
+// Inicia servidor HTTP
 app.listen(PORT, () => {
-  console.log(`🌐 Servidor HTTP rodando na porta ${PORT}`);
+    console.log(`Servidor HTTP rodando na porta ${PORT}`);
+    console.log(`URL: https://autojoin-api.onrender.com`);
 });
 
+// Login do bot Discord
 if (BOT_TOKEN) {
-  client.login(BOT_TOKEN)
-    .then(() => console.log('✅ Bot logado com sucesso!'))
-    .catch(err => console.error('❌ Erro ao fazer login:', err));
+    client.login(BOT_TOKEN)
+        .then(() => console.log('Bot logado com sucesso!'))
+        .catch(err => console.error('Erro no login do bot:', err));
 } else {
-  console.error('❌ Token do bot não encontrado!');
+    console.error('Token do bot não encontrado!');
 }
 
+// Tratamento de encerramento
 process.on('SIGTERM', () => {
-  console.log('🛑 Encerrando aplicação...');
-  client.destroy();
-  process.exit(0);
+    console.log('Encerrando aplicação...');
+    client.destroy();
+    process.exit(0);
 });
 
 process.on('SIGINT', () => {
-  console.log('🛑 Encerrando aplicação...');
-  client.destroy();
-  process.exit(0);
+    console.log('Encerrando aplicação...');
+    client.destroy();
+    process.exit(0);
 });
