@@ -4,98 +4,78 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+});
+
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 const PLACE_ID = process.env.PLACE_ID;
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
-const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-    ],
-});
-
 let botStatus = {
-    online: false,
-    jobsDetected: 0,
-    lastJobDetected: null,
-    startTime: new Date(),
+  online: false,
+  jobsDetected: 0,
+  lastJobId: null,
+  startTime: Date.now(),
 };
 
-function extractPCJobID(content) {
-    try {
-        const match = content.match(/Job ID \(PC\)[:\s]*([^\n]+)/i);
-        if (match) return match[1].trim();
-    } catch (err) {
-        console.error('Erro ao extrair Job ID (PC):', err);
-    }
-    return null;
+function extractJobIdPC(text) {
+  const regex = /Job ID \(PC\)[:\s]*([\w+/=.-]{10,})/i;
+  const match = text.match(regex);
+  return match ? match[1].trim() : null;
 }
 
-client.once('clientReady', () => {
-    console.log('🤖 BOT ONLINE');
-    botStatus.online = true;
+client.once('ready', () => {
+  console.log(`🤖 Bot ${client.user.tag} online, monitorando canal ${DISCORD_CHANNEL_ID}`);
+  botStatus.online = true;
 });
 
 client.on('messageCreate', (message) => {
-    if (message.channel.id !== DISCORD_CHANNEL_ID) return;
+  if (message.channel.id !== DISCORD_CHANNEL_ID) return;
 
-    // Pode ser mensagem normal ou embed
-    let content = message.content;
-    if (message.embeds.length > 0) {
-        const embed = message.embeds[0];
-        content = embed.description || embed.title || content;
-    }
+  const content = message.embeds.length ? (message.embeds[0].description || message.embeds[0].title || '') : message.content;
+  if (!content.includes('Job ID (PC)')) return;
 
-    if (content.includes('Job ID (PC)')) {
-        const jobIdPC = extractPCJobID(content);
-        if (jobIdPC) {
-            botStatus.jobsDetected++;
-            botStatus.lastJobDetected = {
-                jobIdPC,
-                timestamp: new Date().toISOString(),
-            };
-            console.log(`🎯 Job ID (PC) detectado: ${jobIdPC}`);
-            console.log(`🎮 Link do jogo: https://www.roblox.com/games/${PLACE_ID}?jobId=${jobIdPC}`);
-        }
-    }
-});
-
-client.on('error', (error) => {
-    console.error('Erro no bot:', error);
-    botStatus.online = false;
+  const jobId = extractJobIdPC(content);
+  if (jobId) {
+    botStatus.jobsDetected++;
+    botStatus.lastJobId = jobId;
+    console.log(`🎯 Job ID (PC) detectado: ${jobId}`);
+    console.log(`🎮 Link direto: https://www.roblox.com/games/${PLACE_ID}?jobId=${jobId}`);
+  }
 });
 
 app.get('/', (req, res) => {
-    res.json({
-        status: 'online',
-        botStatus,
-        uptimeSeconds: Math.floor((Date.now() - botStatus.startTime) / 1000),
-        version: '1.0.0',
-    });
+  res.json({
+    status: 'online',
+    botStatus,
+    uptimeSeconds: Math.floor((Date.now() - botStatus.startTime) / 1000),
+  });
 });
 
 app.listen(PORT, () => {
-    console.log(`Servidor rodando na porta ${PORT}`);
+  console.log(`🌐 Servidor rodando na porta ${PORT}`);
 });
 
-if (BOT_TOKEN) {
-    client.login(BOT_TOKEN).then(() => {
-        console.log('Bot logado com sucesso!');
-    }).catch(console.error);
-} else {
-    console.error('Token do bot não encontrado!');
+if (!BOT_TOKEN) {
+  console.error('❌ Token do bot não encontrado!');
+  process.exit(1);
 }
 
-process.on('SIGINT', () => {
-    console.log('Encerrando...');
-    client.destroy();
-    process.exit(0);
+client.login(BOT_TOKEN).then(() => {
+  console.log('✅ Bot logado com sucesso!');
+}).catch((err) => {
+  console.error('❌ Erro ao logar o bot:', err);
+  process.exit(1);
 });
 
 process.on('SIGTERM', () => {
-    console.log('Encerrando...');
-    client.destroy();
-    process.exit(0);
+  console.log('🛑 Encerrando aplicação...');
+  client.destroy();
+  process.exit(0);
+});
+process.on('SIGINT', () => {
+  console.log('🛑 Encerrando aplicação...');
+  client.destroy();
+  process.exit(0);
 });
