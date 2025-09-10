@@ -5,7 +5,11 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
@@ -19,10 +23,25 @@ let botStatus = {
   startTime: Date.now(),
 };
 
-function extractJobIdPC(text) {
-  const regex = /Job ID \(PC\)[:\s]*([\w+/=.-]{10,})/i;
-  const match = text.match(regex);
-  return match ? match[1].trim() : null;
+// Função para extrair Job ID (PC) de qualquer texto (captura vários formatos)
+function extractJobId(text) {
+  // Regex para pegar formatos tipo:
+  // 7OHA5HNJu0RG0HkK4HuEP8mTGjKs/ARLBHGYcLuQyuHECVNXT4tF+AtNrbDJT5QHaOGIrkSKDplUBbtE7HEHDE1TCEuLHbuQ
+  // 05c29fd8-bc0c-4ed1-9b30-c4551ac5bad4
+  // Pode ajustar/expandir conforme formatos novos que apareçam
+
+  const regexes = [
+    /Job ID \(PC\)[:\s]*([\w+/=.-]{10,})/i,       // padrão com label "Job ID (PC)"
+    /([\w+/=.-]{50,})/,                           // strings longas (>50 caracteres) que pareçam job id
+    /([a-f0-9-]{36})/i,                          // UUID (36 chars)
+  ];
+
+  for (const regex of regexes) {
+    const match = text.match(regex);
+    if (match) return match[1].trim();
+  }
+
+  return null;
 }
 
 client.once('ready', () => {
@@ -33,14 +52,21 @@ client.once('ready', () => {
 client.on('messageCreate', (message) => {
   if (message.channel.id !== DISCORD_CHANNEL_ID) return;
 
-  const content = message.embeds.length ? (message.embeds[0].description || message.embeds[0].title || '') : message.content;
-  if (!content.includes('Job ID (PC)')) return;
+  // Pega o conteúdo da mensagem ou do embed
+  let content = message.content || '';
 
-  const jobId = extractJobIdPC(content);
+  if (message.embeds.length > 0) {
+    const embed = message.embeds[0];
+    content += '\n' + (embed.description || '') + '\n' + (embed.title || '');
+  }
+
+  const jobId = extractJobId(content);
+
   if (jobId) {
     botStatus.jobsDetected++;
     botStatus.lastJobId = jobId;
-    console.log(`🎯 Job ID (PC) detectado: ${jobId}`);
+
+    console.log(`🎯 Job ID detectado: ${jobId}`);
     console.log(`🎮 Link direto: https://www.roblox.com/games/${PLACE_ID}?jobId=${jobId}`);
   }
 });
